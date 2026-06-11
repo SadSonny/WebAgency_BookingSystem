@@ -7,7 +7,7 @@
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**→ 1.1 `docker-compose.yml`** (PostgreSQL 16 + pgAdmin) — primo task di V1.
+**→ 1.1 `docker-compose.yml`** (PostgreSQL 16 + pgAdmin).
 
 ### Come aggiornare questo file
 - Spunta `[x]` il task completato immediatamente dopo averlo finito e verificato con `dotnet build`.
@@ -22,6 +22,7 @@
 > Obiettivo: sistema prenotazioni funzionante end-to-end, provisionabile via CLI, senza notifiche email.
 
 ### 1. Infrastruttura & Setup
+- [x] 1.0 OpenAPI + Scalar UI (`Scalar.AspNetCore 2.16.3`, `Microsoft.AspNetCore.OpenApi 10.0.8`) — UI: `/scalar`, doc JSON: `/openapi/v1.json`
 - [ ] 1.1 `docker-compose.yml` (PostgreSQL 16 + pgAdmin)
 - [ ] 1.2 `Dockerfile` multi-stage per `WebAgency_BookingSystem.Api`
 - [ ] 1.3 `appsettings.json` + `appsettings.Development.json` con tutte le sezioni
@@ -147,3 +148,4 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 |---|---|---|
 | 2026-06-11 | Pianificazione | Piano V1/V2 creato; decisioni architetturali definite |
 | 2026-06-11 | Documentazione | CLAUDE.md e DEVELOPMENT_PLAN.md aggiornati con guida sessione AI, stato codebase, decisioni già prese |
+| 2026-06-11 | Feature | Step 1.0 completato: OpenAPI + Scalar.AspNetCore 2.16.3 — UI su `/scalar`, doc su `/openapi/v1.json` |

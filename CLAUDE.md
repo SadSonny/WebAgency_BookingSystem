@@ -115,6 +115,34 @@ await db.Database.ExecuteSqlRawAsync("SELECT pg_try_advisory_xact_lock({0})", lo
 #### XML summary sui membri pubblici
 Tutti i metodi e le proprietà pubbliche di interfacce e servizi devono avere `/// <summary>` che descrive il **contratto** (cosa garantisce, non come lo fa).
 
+### Documentazione OpenAPI — Regola Obbligatoria
+
+La documentazione API è generata **automaticamente a runtime** dal codice (.NET 10 built-in OpenAPI + Scalar UI). È sempre aggiornata perché riflette direttamente gli endpoint registrati. Per mantenerla ricca e utile, ogni endpoint **deve** includere i seguenti metadati:
+
+```csharp
+app.MapGet("/api/v1/services", handler)
+    .WithName("GetServices")                          // OperationId univoco
+    .WithSummary("Lista servizi attivi")              // Titolo breve (max 80 char)
+    .WithDescription("Restituisce tutti i servizi...") // Descrizione estesa
+    .WithTags("Servizi")                              // Gruppo nel menu laterale
+    .Produces<IEnumerable<ServiceResponse>>(200)      // Risposta di successo tipizzata
+    .ProducesProblem(401)                             // Risposta di errore
+    .RequireAuthorization();                          // Se richiede auth
+```
+
+**Regole:**
+- `WithName`: sempre presente, camelCase, unico in tutta l'API
+- `WithSummary`: sempre presente — è il testo che appare nell'elenco endpoint
+- `WithDescription`: obbligatorio per endpoint con logica non ovvia (availability, bookings)
+- `WithTags`: raggruppa per area funzionale (`"Sistema"`, `"Servizi"`, `"Staff"`, `"Prenotazioni"`, `"Admin"`)
+- `Produces<T>`: sempre tipizzato — mai `IResult` generico; usare `TypedResults.Ok<T>()` nel handler
+
+**Note tecniche:**
+- Namespace corretto (v2.0): `using Microsoft.OpenApi;` — non `Microsoft.OpenApi.Models` (rimosso in v2.0)
+- `Microsoft.OpenApi 2.0.0` deve essere dipendenza diretta nel `.csproj` (non solo transitiva)
+
+**URL della UI:** `http://localhost:5000/scalar` in sviluppo
+
 ### Processo di Sviluppo
 
 - **Scomponi sempre**: ogni task deve essere spezzata in sotto-task atomiche prima di eseguire. Non iniziare a scrivere codice finché la scomposizione non è chiara.
