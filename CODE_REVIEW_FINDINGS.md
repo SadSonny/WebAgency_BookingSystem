@@ -184,9 +184,9 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
 
 ## 7. Testing  *(rischio trasversale)*
 
-- [ ] **R-30 (P1) — Zero test.**
-  `AvailabilityCalculator` (algoritmo cuore) e il booking concorrente non hanno alcuna copertura; la spec `04-logica-disponibilita.md` elenca **19 casi unit + 5 integration obbligatori**.
-  *Fix:* iniziare da **9.1** (unit su `AvailabilityCalculator`, eseguibili **senza Docker**), poi `BookingService` e integration con Testcontainers. È la singola voce con il miglior rapporto valore/rischio.
+- [~] **R-30 (P1) — Test (in corso).**
+  ✅ **Fatto:** `AvailabilityCalculator` (algoritmo cuore) coperto da `AvailabilityCalculatorTests` — 23 test verdi (granularità, bordi chiusura, pausa, anticipo/passato, capienza parallelSlots/staff, buffer D-10, `IsSlotAvailable`), eseguibili **senza Docker**.
+  ⏳ **Resta:** `AvailabilityService`/`HoursResolver` con repository mockati (chiusure, orari staff), `BookingService` (logica disdetta/regole), e integration con Testcontainers (advisory lock, race condition) — questi ultimi richiedono Docker.
 
 ---
 

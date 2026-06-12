@@ -111,7 +111,7 @@ Poi proseguire con la **Sezione 6 (Admin API)** e **7 (CLI provisioning)**, quin
 - [ ] 8.5 Collegamento fire-and-forget post-commit nei servizi booking
 
 ### 9. Test Suite
-- [ ] 9.1 Unit: `AvailabilityService` — 19 casi (da spec `04-logica-disponibilita.md`)
+- [~] 9.1 Unit: disponibilità — **`AvailabilityCalculator` (cuore puro) coperto: 23 test verdi** (granularità, bordi chiusura, pausa, anticipo/passato, capienza parallelSlots/staff, buffer D-10, `IsSlotAvailable`). Resta da fare l'`AvailabilityService` con repository mockati (NSubstitute) per i casi chiusura/staff-hours.
 - [ ] 9.2 Unit: `BookingService` — race condition, cancellation logic
 - [ ] 9.3 Unit: `TenantResolutionMiddleware`
 - [ ] 9.4 Integration: `POST /api/v1/bookings` — 5 casi (da spec)
@@ -162,3 +162,5 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-12 | Infra | Step 3.1–3.8 completati: DbContext + global query filter, 11 config Fluent API (snake_case via EFCore.NamingConventions), migrazione `InitialSchema` **generata** con factory design-time (no Docker), 4 repository, `EmailServiceStub`, DI `AddInfrastructure`. Build verde. |
 | 2026-06-12 | Middleware | Step 4.1–4.5 completati: `TenantResolutionMiddleware` (X-Api-Key→tenant, 401/403), rate limiting sliding window per API key, error handling middleware + mapping Result→HTTP, Serilog Console, helper Core `ApiKeyHasher`/`IpAnonymizer`, Program.cs pipeline. Build verde. |
 | 2026-06-12 | Endpoint | Step 5.1–5.8 completati: health, tenant/config, services, staff, availability (`AvailabilityCalculator` puro + `AvailabilityService`), bookings POST/GET/DELETE (`BookingService` con advisory lock). FluentValidation, metadati OpenAPI su tutti gli endpoint. Build solution verde. **V1 endpoint pubblici completi.** Validazione runtime rinviata a `DOCKER_SESSION_TODO.md`. |
+| 2026-06-12 | Review | Prodotto `CODE_REVIEW_FINDINGS.md`: review statica critica, 33 rilievi P0–P3 (logging, CORS, deploy/proxy, sicurezza, concorrenza, performance, test). |
+| 2026-06-12 | Test | Step 9.1 (parziale): suite unit `AvailabilityCalculatorTests` — 23 test verdi sul cuore puro dell'algoritmo, senza Docker. Rimosso placeholder `UnitTest1.cs`. |
