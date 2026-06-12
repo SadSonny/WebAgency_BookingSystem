@@ -51,6 +51,7 @@
 - [ ] **Correlation (R-02):** ogni risposta ha header `X-Trace-Id`; i log della richiesta riportano `RequestId` e (dopo auth) `TenantId`.
 - [ ] **Binding envelope (R-31):** `GET /availability` senza `dateFrom` → 400 `{ "type": "bad_request" }`; POST con JSON malformato → 400 `bad_request`.
 - [ ] **Distinzione 409 (R-04):** sotto contesa concorrente i log distinguono "advisory lock non acquisito" da "slot non disponibile alla ri-verifica".
+- [ ] **Rate limit per IP (R-14):** oltre ~300 richieste/min dallo stesso IP verso `/api/v1` → 429 anche con API key mancante/non valida; `/health` non è limitato.
 
 ## 7. Punti aperti da confermare con l'utente
 Vedi `DUBBI_SESSIONE.md` (D-01 … D-11): versioni NuGet, header API key, `tenant/config.bufferMinutes`,

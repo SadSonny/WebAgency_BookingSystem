@@ -21,10 +21,10 @@ I gap principali per un sistema **realmente in produzione con clienti** sono: **
 - [x] **R-08 (P1, blocca deploy Railway)** — Dockerfile fissa `ASPNETCORE_URLS` a build time: l'app non ascolta sulla `$PORT` runtime. ✅ risolto
 - [x] **R-01 / R-02 / R-04 (P1)** — Logging applicativo e correlazione assenti: impossibile diagnosticare in produzione. ✅ risolto
 - [x] **R-07 (P1)** — ForwardedHeaders assente: IP (audit/log) e rate-limit per-IP errati dietro proxy. ✅ risolto
-- [ ] **R-14 (P1)** — La risoluzione tenant non è rate-limited: brute-force/DoS sulle API key.
+- [x] **R-14 (P1)** — La risoluzione tenant non è rate-limited: brute-force/DoS sulle API key. ✅ risolto (GlobalLimiter per IP a monte dell'auth)
 - [~] **R-30 (P1)** — Test sul cuore: ✅ unit di `AvailabilityCalculator`/`HoursResolver`/`BookingService` (41 verdi); restano integration (Docker).
 
-> **Aggiornamento 2026-06-12:** risolti in sessione i rilievi **R-01, R-02, R-04, R-06, R-07, R-08, R-09 (mitigato), R-10, R-11, R-31**. Restano aperti i principali: **R-14** (rate-limit auth), **R-30** (integration test, richiede Docker), e i P2/P3 elencati sotto.
+> **Aggiornamento 2026-06-12:** risolti in sessione i rilievi **R-01, R-02, R-04, R-06, R-07, R-08, R-09 (mitigato), R-10, R-11, R-14, R-31**. **Tutti i P0/P1 fattibili senza Docker sono chiusi.** Restano: **R-30** (integration test, richiede Docker) e i P2/P3 elencati sotto.
 
 ---
 
@@ -100,7 +100,7 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
 
 ## 3. Sicurezza
 
-- [ ] **R-14 (P1) — La risoluzione tenant non è protetta da rate limiting.**
+- [x] **R-14 (P1) — La risoluzione tenant non è protetta da rate limiting.** ✅ risolto
   Nella pipeline ([Program.cs](src/WebAgency_BookingSystem.Api/Program.cs)) `UseRateLimiter` è **dopo** `TenantResolutionMiddleware`: le richieste con API key invalida (403) **non vengono limitate**, e ogni tentativo fa una query al DB.
   *Impatto:* brute-force/enumerazione di API key e DoS sull'endpoint di risoluzione.
   *Fix:* limiter globale per IP a monte della risoluzione, oppure contare anche i tentativi falliti.
