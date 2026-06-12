@@ -7,7 +7,7 @@
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**→ 4.1 `TenantResolutionMiddleware`** (header `X-Api-Key` → `tenant_id` nel context).
+**→ 5.1 `GET /api/v1/health`** e a seguire gli altri endpoint pubblici (5.2-5.8).
 > Sessione autonoma in corso (senza Docker): si implementa V1 fino allo step 5.8 (endpoint pubblici), gate `dotnet build`.
 > Rinviato alla sessione con Docker: `dotnet ef database update`, run API, smoke-test (vedi `DOCKER_SESSION_TODO.md`).
 
@@ -53,11 +53,11 @@
 - [x] 3.8 `EmailServiceStub` (implementazione no-op di `IEmailService`) + `AddInfrastructure` DI
 
 ### 4. Middleware & Cross-Cutting (`WebAgency_BookingSystem.Api`)
-- [ ] 4.1 `TenantResolutionMiddleware` (header `X-Api-Key` → `tenant_id` nel context)
-- [ ] 4.2 Rate limiting (100 req/min per API key, sliding window)
-- [ ] 4.3 Error handling middleware (envelope `{ type, message, errors }`)
-- [ ] 4.4 Serilog setup (structured logging, IP anonimizzato a /24)
-- [ ] 4.5 Program.cs con DI completo, middleware pipeline, routing
+- [x] 4.1 `TenantResolutionMiddleware` (header `X-Api-Key` → `tenant_id` nel context) + `ApiKeyHasher` (Core)
+- [x] 4.2 Rate limiting (100 req/min per API key, sliding window) — policy `PublicApi`, 429 + Retry-After
+- [x] 4.3 Error handling middleware (envelope `{ type, message }`) + `ResultMapping` (Result→HTTP) + `HttpErrorWriter`
+- [x] 4.4 Serilog setup (Console, request logging GDPR-safe) + `IpAnonymizer` (Core, /24)
+- [x] 4.5 Program.cs con DI completo, middleware pipeline, routing (endpoint mapping attivato in 5.x)
 
 ### 5. Endpoint Pubblici
 - [ ] 5.1 `GET /api/v1/health` (no auth)
@@ -157,3 +157,4 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-12 | Infra | Step 1.1–1.5 completati: docker-compose (Postgres 16 + pgAdmin), Dockerfile multi-stage, appsettings completi, `.env.example`, pacchetti NuGet (EF Core/Npgsql, Serilog, FluentValidation). Build verde. |
 | 2026-06-12 | Core | Step 2.1–2.7, 2.9 completati: 11 entità, enum, `Result<T>`/`Error`/`ErrorType`, DTO pubblici + `ErrorResponse`, interfacce repository/servizi + `ITenantContext`. Deviazioni schema: buffer per-servizio (AD-03), `deleted_at` su services/staff. Step 2.8 (DTO admin) rinviato con 6.x. Build Core verde. |
 | 2026-06-12 | Infra | Step 3.1–3.8 completati: DbContext + global query filter, 11 config Fluent API (snake_case via EFCore.NamingConventions), migrazione `InitialSchema` **generata** con factory design-time (no Docker), 4 repository, `EmailServiceStub`, DI `AddInfrastructure`. Build verde. |
+| 2026-06-12 | Middleware | Step 4.1–4.5 completati: `TenantResolutionMiddleware` (X-Api-Key→tenant, 401/403), rate limiting sliding window per API key, error handling middleware + mapping Result→HTTP, Serilog Console, helper Core `ApiKeyHasher`/`IpAnonymizer`, Program.cs pipeline. Build verde. |
