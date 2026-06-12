@@ -5,6 +5,7 @@
 using System.Reflection;
 using System.Threading.RateLimiting;
 using FluentValidation;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 using Serilog;
@@ -65,6 +66,41 @@ builder.Services.AddOpenApi(options =>
 // ── Infrastructure (DbContext, repository, tenant context, email) ─────────────
 builder.Services.AddInfrastructure(builder.Configuration);
 
+// ── Forwarded headers (dietro proxy Railway) ──────────────────────────────────
+// WHY: dietro il proxy della piattaforma l'IP/scheme reali del client arrivano negli header X-Forwarded-*.
+// Senza questo, RemoteIpAddress sarebbe l'IP del proxy → IP errati in audit/log e nel fallback del rate
+// limiter. Svuotiamo KnownNetworks/KnownProxies perché l'app è esposta solo dietro il proxy gestito (trusted).
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// ── CORS (R-06) ───────────────────────────────────────────────────────────────
+// WHY: il widget di prenotazione gira nel browser e chiama l'API cross-origin. Le origini ammesse si
+// configurano in Cors:AllowedOrigins. Nessuna credenziale via cookie (auth via header X-Api-Key), quindi
+// non serve AllowCredentials. In sviluppo, se non sono configurate origini, si accetta qualsiasi origine.
+// NOTA: per un multi-tenant pieno le origini ideali derivano dal site_url di ciascun tenant (evoluzione futura).
+string[] allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(CorsPolicies.Frontend, policy =>
+    {
+        if (builder.Environment.IsDevelopment() && allowedOrigins.Length == 0)
+        {
+            policy.SetIsOriginAllowed(_ => true);
+        }
+        else
+        {
+            policy.WithOrigins(allowedOrigins);
+        }
+
+        policy.WithMethods("GET", "POST", "DELETE", "OPTIONS")
+              .WithHeaders("X-Api-Key", "Content-Type");
+    });
+});
+
 // ── Validazione (FluentValidation) ────────────────────────────────────────────
 // I validator degli endpoint pubblici (es. CreateBookingRequest) vivono in questo assembly.
 builder.Services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
@@ -106,6 +142,9 @@ builder.Services.AddRateLimiter(options =>
 var app = builder.Build();
 
 // ── Pipeline middleware (ordine significativo) ────────────────────────────────
+// 0. Forwarded headers: per primo, così tutto il resto vede IP/scheme reali del client (dietro proxy).
+app.UseForwardedHeaders();
+
 // 1. Error handling: rete di sicurezza più esterna, cattura tutto ciò che sta sotto.
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
@@ -121,12 +160,18 @@ app.MapScalarApiReference(options =>
     options.DefaultHttpClient = new(ScalarTarget.CSharp, ScalarClient.HttpClient);
 }); // /scalar
 
+// WHY: con i forwarded headers lo scheme reale è https (TLS terminato dal proxy), quindi la redirection
+// non genera loop. In assenza di proxy resta un no-op se la richiesta è già https.
 app.UseHttpsRedirection();
 
-// 4. Risoluzione tenant da X-Api-Key (popola ITenantContext per le rotte pubbliche tenant-scoped).
+// 4. CORS: prima della tenant resolution, così il preflight OPTIONS (privo di X-Api-Key) viene gestito e
+//    short-circuitato qui senza essere bloccato con 401 dal middleware tenant.
+app.UseCors(CorsPolicies.Frontend);
+
+// 5. Risoluzione tenant da X-Api-Key (popola ITenantContext per le rotte pubbliche tenant-scoped).
 app.UseMiddleware<TenantResolutionMiddleware>();
 
-// 5. Rate limiter (applicato agli endpoint che dichiarano RequireRateLimiting).
+// 6. Rate limiter (applicato agli endpoint che dichiarano RequireRateLimiting).
 app.UseRateLimiter();
 
 // ── Endpoint pubblici (5.1-5.8) ───────────────────────────────────────────────
