@@ -2,23 +2,38 @@
 // query filter. Il filtro per servizio passa per la tabella di associazione staff_services.
 
 using Microsoft.EntityFrameworkCore;
+using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Entities;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
+using WebAgency_BookingSystem.Infrastructure.Persistence.Caching;
 
 namespace WebAgency_BookingSystem.Infrastructure.Persistence.Repositories;
 
 internal sealed class StaffRepository : IStaffRepository
 {
+    private static readonly TimeSpan Ttl = TimeSpan.FromSeconds(30);
+
     private readonly BookingSystemDbContext _db;
+    private readonly ITenantContext _tenantContext;
+    private readonly ITenantCache _cache;
 
-    public StaffRepository(BookingSystemDbContext db) => _db = db;
+    public StaffRepository(BookingSystemDbContext db, ITenantContext tenantContext, ITenantCache cache)
+    {
+        _db = db;
+        _tenantContext = tenantContext;
+        _cache = cache;
+    }
 
-    public async Task<IReadOnlyList<Staff>> GetActiveAsync(CancellationToken ct = default) =>
-        await _db.Staff
-            .Where(s => s.Active)
-            .OrderBy(s => s.DisplayOrder).ThenBy(s => s.Name)
-            .ToListAsync(ct);
+    public Task<IReadOnlyList<Staff>> GetActiveAsync(CancellationToken ct = default) =>
+        _cache.GetOrCreateAsync<IReadOnlyList<Staff>>(
+            _tenantContext.TenantId!.Value, "active-staff", Ttl,
+            async token => await _db.Staff
+                .AsNoTracking()
+                .Where(s => s.Active)
+                .OrderBy(s => s.DisplayOrder).ThenBy(s => s.Name)
+                .ToListAsync(token),
+            ct);
 
     public async Task<IReadOnlyList<Staff>> GetActiveByServiceAsync(Guid serviceId, CancellationToken ct = default) =>
         await (

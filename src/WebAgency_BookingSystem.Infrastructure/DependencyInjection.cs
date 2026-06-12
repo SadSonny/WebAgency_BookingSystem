@@ -10,6 +10,7 @@ using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
+using WebAgency_BookingSystem.Infrastructure.Persistence.Caching;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Repositories;
 using WebAgency_BookingSystem.Infrastructure.Services;
 using WebAgency_BookingSystem.Infrastructure.Tenancy;
@@ -37,6 +38,10 @@ public static class DependencyInjection
         services.AddDbContext<BookingSystemDbContext>(options =>
             options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure())
                 .UseSnakeCaseNamingConvention());
+
+        // Cache in-memory per dati quasi-statici (risoluzione API key, config/orari/servizi) — R-15/R-22.
+        services.AddMemoryCache();
+        services.AddSingleton<ITenantCache, TenantCache>();
 
         // Il tenant corrente vive per-richiesta: scoped, popolato dal middleware, letto dal DbContext.
         services.AddScoped<ITenantContext, TenantContext>();
