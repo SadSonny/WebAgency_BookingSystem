@@ -8,6 +8,7 @@ using FluentValidation;
 using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 using Serilog;
+using WebAgency_BookingSystem.Api.Endpoints;
 using WebAgency_BookingSystem.Api.Http;
 using WebAgency_BookingSystem.Api.Middleware;
 using WebAgency_BookingSystem.Infrastructure;
@@ -119,7 +120,7 @@ app.UseMiddleware<TenantResolutionMiddleware>();
 // 5. Rate limiter (applicato agli endpoint che dichiarano RequireRateLimiting).
 app.UseRateLimiter();
 
-// ── Endpoint ──────────────────────────────────────────────────────────────────
-// TODO step 5 (Blocco E): app.MapPublicEndpoints() — health, config, services, staff, availability, bookings.
+// ── Endpoint pubblici (5.1-5.8) ───────────────────────────────────────────────
+app.MapPublicEndpoints();
 
 app.Run();

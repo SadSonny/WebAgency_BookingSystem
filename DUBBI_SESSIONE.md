@@ -65,6 +65,11 @@
 **Contesto:** lo scope concordato è 1.1→5.8 (endpoint pubblici). I DTO admin servono agli endpoint admin (6.x), fuori scope.
 **Decisione:** step 2.8 NON implementato in questa sessione per non introdurre dead code (CLAUDE.md vieta implementazioni parziali/non usate). Sarà fatto insieme agli endpoint admin (6.x). Step 2.8 resta `[ ]` nel piano con nota.
 
+### D-11 — Warning MSB3277 in TenantProvisioning 🟡
+**Contesto:** la solution compila con 0 errori; restano 6 warning MSB3277 SOLO nel progetto `TenantProvisioning` (tool fuori scope, step 7), per unificazione di versione di `Microsoft.EntityFrameworkCore.Abstractions` (10.0.4 vs 10.0.9) ereditata transitivamente da Infrastructure. Nessun impatto funzionale.
+**Default adottato:** lasciati i warning, dato che il tool sarà implementato e referenziato correttamente nello step 7. I progetti in scope (Core/Infrastructure/Api) compilano con 0 warning.
+**Da confermare:** ok rinviare la pulizia a quando si implementa la CLF (7.x)? In alternativa basta un `PackageReference` diretto a EF Core 10.0.9 nel tool.
+
 ### D-10 — Semantica del buffer nell'algoritmo di disponibilità 🟡
 **Contesto:** la spec `04-logica-disponibilita.md` (precedente ad AD-03) modella il buffer solo come tempo aggiunto DOPO l'appuntamento e dichiara (riga 165) che le prenotazioni esistenti NON includono il buffer. Ma il caso di test obbligatorio (riga 345) richiede che, con buffer > 0, uno slot immediatamente successivo a una prenotazione esistente risulti NON disponibile — il che è impossibile col modello "solo new slot, solo dopo".
 **Default adottato:** il buffer estende l'intervallo "occupato" di OGNI appuntamento (nuovo ed esistente) secondo `BufferPosition` (Before/After/Both). Due appuntamenti confliggono se gli intervalli estesi si sovrappongono. Questo soddisfa sia AD-03 sia i test 345/346 e degrada esattamente al comportamento spec quando buffer = 0.
