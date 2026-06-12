@@ -33,6 +33,8 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
     .ReadFrom.Configuration(context.Configuration)
     .ReadFrom.Services(services)
     .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "WebAgency_BookingSystem.Api")
+    .Enrich.WithProperty("Environment", context.HostingEnvironment.EnvironmentName)
     .WriteTo.Console());
 
 // ── OpenAPI (1.0) ─────────────────────────────────────────────────────────────
@@ -191,13 +193,18 @@ app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseSerilogRequestLogging();
 
 // 3. Documentazione API (non /api/v1 → esente da tenant resolution).
-app.MapOpenApi(); // /openapi/v1.json
-app.MapScalarApiReference(options =>
+// WHY (R-13): in produzione non esponiamo pubblicamente l'intera superficie API. Gating per ambiente:
+// la doc resta disponibile in Development/Staging dove è utile, non in Production.
+if (!app.Environment.IsProduction())
 {
-    options.Title = "BookingSystem API";
-    options.Theme = ScalarTheme.Purple;
-    options.DefaultHttpClient = new(ScalarTarget.CSharp, ScalarClient.HttpClient);
-}); // /scalar
+    app.MapOpenApi(); // /openapi/v1.json
+    app.MapScalarApiReference(options =>
+    {
+        options.Title = "BookingSystem API";
+        options.Theme = ScalarTheme.Purple;
+        options.DefaultHttpClient = new(ScalarTarget.CSharp, ScalarClient.HttpClient);
+    }); // /scalar
+}
 
 // WHY: con i forwarded headers lo scheme reale è https (TLS terminato dal proxy), quindi la redirection
 // non genera loop. In assenza di proxy resta un no-op se la richiesta è già https.

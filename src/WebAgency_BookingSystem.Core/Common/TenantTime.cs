@@ -1,13 +1,14 @@
 // [INTENT]: Risolve l'ora corrente nel timezone (IANA) del tenant. Centralizza la conversione UTC→locale
-// usata dall'algoritmo di disponibilità e dalle regole di prenotazione/disdetta. Con timezone non valido
-// ripiega su UTC per non bloccare il servizio (situazione anomala, da correggere in configurazione tenant).
+// usata dall'algoritmo di disponibilità, dalle regole di prenotazione/disdetta e dagli endpoint (es. filtro
+// chiusure). Con timezone non valido ripiega su UTC per non bloccare il servizio (situazione anomala, da
+// correggere nella configurazione del tenant). Solo BCL (System.TimeZoneInfo): resta in Core senza dipendenze.
 
-namespace WebAgency_BookingSystem.Infrastructure.Services;
+namespace WebAgency_BookingSystem.Core.Common;
 
 /// <summary>
-/// Helper per ottenere l'ora locale del tenant a partire dal suo identificativo timezone IANA.
+/// Helper per ottenere data/ora locale del tenant a partire dal suo identificativo timezone IANA.
 /// </summary>
-internal static class TenantTime
+public static class TenantTime
 {
     /// <summary>Restituisce la data/ora corrente nel timezone del tenant (fallback UTC se id non valido).</summary>
     public static DateTime Now(string ianaTimezone)
@@ -24,4 +25,7 @@ internal static class TenantTime
 
         return TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, timeZone).DateTime;
     }
+
+    /// <summary>Restituisce la data odierna nel timezone del tenant.</summary>
+    public static DateOnly Today(string ianaTimezone) => DateOnly.FromDateTime(Now(ianaTimezone));
 }

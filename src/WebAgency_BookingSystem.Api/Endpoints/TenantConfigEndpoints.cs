@@ -5,6 +5,7 @@
 using WebAgency_BookingSystem.Api.Http;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
+using WebAgency_BookingSystem.Core.Common;
 using WebAgency_BookingSystem.Core.Dtos;
 using WebAgency_BookingSystem.Core.Dtos.Public;
 using WebAgency_BookingSystem.Core.Entities;
@@ -21,8 +22,10 @@ internal static class TenantConfigEndpoints
             // Il tenant è già risolto e caricato dal middleware (rotta tenant-scoped).
             Tenant tenant = tenantContext.Tenant!;
             IReadOnlyList<TenantBusinessHours> hours = await tenants.GetBusinessHoursAsync(tenant.Id, ct);
+            // R-19: filtriamo le chiusure rispetto a "oggi" nel fuso del tenant, non in UTC (evita off-by-one
+            // a cavallo di mezzanotte).
             IReadOnlyList<TenantSpecialClosure> closures = await tenants.GetActiveSpecialClosuresAsync(
-                tenant.Id, DateOnly.FromDateTime(DateTime.UtcNow), ct);
+                tenant.Id, TenantTime.Today(tenant.Timezone), ct);
 
             var response = new TenantConfigResponse(
                 tenant.Id,
