@@ -24,7 +24,20 @@ I gap principali per un sistema **realmente in produzione con clienti** sono: **
 - [x] **R-14 (P1)** — La risoluzione tenant non è rate-limited: brute-force/DoS sulle API key. ✅ risolto (GlobalLimiter per IP a monte dell'auth)
 - [~] **R-30 (P1)** — Test sul cuore: ✅ unit di `AvailabilityCalculator`/`HoursResolver`/`BookingService` (41 verdi); restano integration (Docker).
 
-> **Aggiornamento 2026-06-12:** risolti in sessione i rilievi **R-01, R-02, R-04, R-06, R-07, R-08, R-09 (mitigato), R-10, R-11, R-14, R-31**. **Tutti i P0/P1 fattibili senza Docker sono chiusi.** Restano: **R-30** (integration test, richiede Docker) e i P2/P3 elencati sotto.
+> **Aggiornamento 2026-06-12 (finale):** risolti in sessione **tutti i rilievi fattibili senza Docker**:
+> R-01, R-02, R-03, R-04, R-06, R-07, R-08, R-09 (mitigato), R-10, R-11, R-12, R-13, R-14, R-15, R-18, R-19,
+> R-20, R-21, R-22, R-23, R-26, R-27, R-28, R-29, R-31, R-33.
+> **Restano aperti SOLO gli item che richiedono Docker o sono fuori scope corrente** (vedi "Deferiti" qui sotto):
+> R-17 (concorrenza, da validare con integration test), R-24 (pooling, richiede profiling), R-25 (email outbox, V2),
+> R-30 (integration test, Docker), R-32 (edge DST, accettato), R-16 (processo dev, non un fix di codice).
+
+## Deferiti (con motivazione — non fatti "alla cieca")
+- **R-16 (P3) — user-secrets:** è una pratica per-sviluppatore (machine-local), non una modifica di codice committabile. I valori in `appsettings.Development.json` sono default di dev non sensibili (stessa connection di docker-compose). Da adottare a discrezione del team.
+- **R-17 (P2) — advisory lock con parallelSlots>1:** modificare la strategia di concorrenza senza integration test (race condition reali) è rischioso proprio dove i bug si annidano. Va affrontato INSIEME a R-30 nella sessione Docker, dove è testabile.
+- **R-24 (P3) — DbContext pooling:** confligge con l'iniezione scoped di `ITenantContext` e va giustificato da profiling; nessun beneficio dimostrato ora.
+- **R-25 (P2) — email outbox:** in V1 `IEmailService` è uno stub no-op; l'outbox ha senso con l'integrazione Brevo (V2). Il post-commit email è già FUORI dall'execution strategy (no doppi invii).
+- **R-32 (P3) — edge DST:** impatto marginale (2 giorni/anno, ±1h sull'anticipo minimo); accettato e documentato. Eventuale fix con `DateTimeOffset` + test dedicato in futuro.
+- **R-30 (P1) — integration test:** richiede Docker/Testcontainers (advisory lock, race condition). Gli unit (cuore puro + consultazione/disdetta) sono fatti.
 
 ---
 
@@ -54,7 +67,7 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
   *Impatto:* in debug non si capisce se si tratta di contesa (concorrenza) o di reale capienza esaurita — diagnosi opposte.
   *Fix:* loggare il ramo (lock fallito vs capacità insufficiente) a livello Information/Warning con le proprietà dello slot.
 
-- [ ] **R-03 (P2) — Serilog minimale.** Solo sink Console, nessun enricher (Environment, MachineName, versione app), nessun sink strutturato per ambienti non-Railway.
+- [x] **R-03 (P2) — Serilog minimale.** ✅ risolto (enrichers Application/Environment) Solo sink Console, nessun enricher (Environment, MachineName, versione app), nessun sink strutturato per ambienti non-Railway.
   *Fix:* aggiungere `Enrich.WithEnvironmentName()`, versione assembly; valutare un sink strutturato (Seq/file) per dev/staging.
 
 - [ ] **R-05 (P2) — Nessuna traccia di sicurezza per accessi falliti.** API key mancante/invalida non viene loggata.
@@ -88,12 +101,12 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
 - [x] **R-11 (P2) — Immagine finale gira come root.** ✅ risolto (`USER app`)
   *Fix:* nel final stage usare un utente non-root (`USER app` sull'immagine aspnet, che fornisce l'utente `app`).
 
-- [ ] **R-12 (P1) — Nessuna resilienza ai transient fault del DB.**
+- [x] **R-12 (P1) — Nessuna resilienza ai transient fault del DB.** ✅ risolto (EnableRetryOnFailure + execution strategy)
   `UseNpgsql` non configura `EnableRetryOnFailure`. Riavvii/failover di Postgres propagano 500. File: [DependencyInjection.cs](src/WebAgency_BookingSystem.Infrastructure/DependencyInjection.cs).
   *Attenzione:* retry + transazioni esplicite e advisory lock richiedono una **execution strategy** gestita manualmente (`CreateExecutionStrategy().ExecuteAsync`).
   *Fix:* abilitare retry e adeguare `BookingService` all'execution strategy.
 
-- [ ] **R-13 (P2) — Scalar/OpenAPI esposti pubblicamente in ogni ambiente.**
+- [x] **R-13 (P2) — Scalar/OpenAPI esposti pubblicamente in ogni ambiente.** ✅ risolto (solo non-Production)
   *Fix:* gating per ambiente (solo non-Production) o dietro auth, se non si vuole pubblicare l'intera superficie API.
 
 ---
@@ -105,28 +118,28 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
   *Impatto:* brute-force/enumerazione di API key e DoS sull'endpoint di risoluzione.
   *Fix:* limiter globale per IP a monte della risoluzione, oppure contare anche i tentativi falliti.
 
-- [ ] **R-15 (P2) — Lookup API key colpisce il DB a ogni richiesta** (nessuna cache). File: [TenantRepository.ResolveActiveByApiKeyHashAsync](src/WebAgency_BookingSystem.Infrastructure/Persistence/Repositories/TenantRepository.cs).
+- [x] **R-15 (P2) — Lookup API key colpisce il DB a ogni richiesta** ✅ risolto (cache TTL 60s) (nessuna cache). File: [TenantRepository.ResolveActiveByApiKeyHashAsync](src/WebAgency_BookingSystem.Infrastructure/Persistence/Repositories/TenantRepository.cs).
   *Fix:* cache in-memory `hash→tenant` con TTL breve + invalidazione su revoca chiave.
 
-- [ ] **R-16 (P3) — Segreti dev in `appsettings.Development.json`** (JWT secret, password DB). Solo locale, ma incoraggia l'abitudine sbagliata. File: [appsettings.Development.json](src/WebAgency_BookingSystem.Api/appsettings.Development.json).
+- [~] **R-16 (P3) — Segreti dev in `appsettings.Development.json`** ⏸ deferito (processo dev, vedi "Deferiti") (JWT secret, password DB). Solo locale, ma incoraggia l'abitudine sbagliata. File: [appsettings.Development.json](src/WebAgency_BookingSystem.Api/appsettings.Development.json).
   *Fix:* usare `dotnet user-secrets` per i valori dev.
 
 ---
 
 ## 4. Correttezza & Concorrenza
 
-- [ ] **R-17 (P2) — L'advisory lock serializza anche slot con `parallelSlots > 1`.**
+- [~] **R-17 (P2) — L'advisory lock serializza anche slot con `parallelSlots > 1`.** ⏸ deferito a sessione Docker (vedi "Deferiti")
   La chiave di lock è `(tenant, service, date, time)`: due prenotazioni **legittime** concorrenti sullo stesso slot multi-capienza vengono serializzate e la seconda può ricevere un **409 spurio** se la prima trattiene il lock oltre i 200 ms (singolo retry). File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
   *Fix:* per capacità > 1 rivedere la strategia (lock per “posto”/contatore, o retry più robusto), e comunque loggare i 409 da contesa.
 
-- [ ] **R-18 (P2) — `DbUpdateException` da race non mappata a 409.**
+- [x] **R-18 (P2) — `DbUpdateException` da race non mappata a 409.** ✅ risolto
   Se l'advisory lock fallisse (o per vincoli concorrenti), l'eccezione diventa 500 generico anziché 409.
   *Fix:* catturare le violazioni di concorrenza e mapparle a `slot_unavailable` (difesa in profondità).
 
-- [ ] **R-19 (P3) — Chiusure in `tenant/config` filtrate con `DateTime.UtcNow`** invece dell'ora locale del tenant → possibile off-by-one a cavallo di mezzanotte. File: [TenantConfigEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/TenantConfigEndpoints.cs).
+- [x] **R-19 (P3) — Chiusure in `tenant/config` filtrate con `DateTime.UtcNow`** ✅ risolto (data locale tenant) invece dell'ora locale del tenant → possibile off-by-one a cavallo di mezzanotte. File: [TenantConfigEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/TenantConfigEndpoints.cs).
   *Fix:* usare la data locale del tenant.
 
-- [ ] **R-20 (P3) — `CheckBookingRulesAsync` ritorna `Result<CreateBookingResponse>` con valore dummy `default!`** per veicolare solo l'esito → odore di design. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
+- [x] **R-20 (P3) — `CheckBookingRulesAsync` ritorna `Result<CreateBookingResponse>` con valore dummy `default!`** ✅ risolto (Result non-generico) per veicolare solo l'esito → odore di design. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
   *Fix:* usare `Result` non generico o un tipo esito dedicato (`ValidationOutcome`).
 
 - [x] **R-31 (P1) — Gli errori di binding/deserializzazione bypassano l'envelope d'errore del contratto.** ✅ risolto (residuo: Guid malformato in query)
@@ -134,7 +147,7 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
   *Impatto:* il frontend riceve due formati d'errore diversi a seconda del tipo di errore → gestione incoerente lato client.
   *Fix:* gestire `BadHttpRequestException`/binding nel middleware (o `AddProblemDetails` con customizzazione) per emettere l'envelope `{ type: "bad_request", message, ... }` anche per i 400 di binding.
 
-- [ ] **R-32 (P3) — Edge DST nei confronti orari di disponibilità.**
+- [~] **R-32 (P3) — Edge DST nei confronti orari di disponibilità.** ⏸ accettato (impatto marginale, vedi "Deferiti")
   `AvailabilityCalculator` e `BookingService` confrontano `DateTime` locali “naive” (Kind=Unspecified) ottenuti da `TenantTime`/`DateOnly.ToDateTime`. Nel giorno del cambio ora legale il confronto con l'anticipo minimo può sfasare di un'ora. File: [AvailabilityCalculator.cs](src/WebAgency_BookingSystem.Core/Availability/AvailabilityCalculator.cs), [TenantTime.cs](src/WebAgency_BookingSystem.Infrastructure/Services/TenantTime.cs).
   *Impatto:* marginale (2 giorni/anno, ±1h sull'anticipo minimo).
   *Fix (se rilevante):* ragionare in `DateTimeOffset` o documentare il limite; coprire con un test mirato.
@@ -143,41 +156,41 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
 
 ## 5. Performance & Scalabilità
 
-- [ ] **R-21 (P2) — Tenant ricaricato dal DB nei servizi** (`AvailabilityService`, `BookingService` via `GetByIdAsync`) benché già caricato dal middleware in `HttpContext.Items`. Query ridondante per ogni richiesta tenant-scoped.
+- [x] **R-21 (P2) — Tenant ricaricato dal DB nei servizi** ✅ risolto (esposto da ITenantContext) (`AvailabilityService`, `BookingService` via `GetByIdAsync`) benché già caricato dal middleware in `HttpContext.Items`. Query ridondante per ogni richiesta tenant-scoped.
   *Fix:* esporre il tenant corrente (non solo l'Id) tramite `ITenantContext` o un accessor condiviso, popolato in fase di risoluzione.
 
-- [ ] **R-22 (P2) — Nessuna cache su dati quasi-statici** (tenant config, business hours, services) — la spec li indica come candidati cache.
+- [x] **R-22 (P2) — Nessuna cache su dati quasi-statici** ✅ risolto (ITenantCache, TTL 30s, invalidazione per-tenant) (tenant config, business hours, services) — la spec li indica come candidati cache.
   *Fix:* `IMemoryCache` con TTL breve e invalidazione sugli update admin.
 
-- [ ] **R-23 (P3) — `/health` esegue `CanConnectAsync` (hit DB) a ogni probe.** Con probe frequenti è carico inutile sul DB. File: [HealthEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/HealthEndpoints.cs).
+- [x] **R-23 (P3) — `/health` esegue `CanConnectAsync` (hit DB) a ogni probe.** ✅ risolto (/health/live liveness senza DB) Con probe frequenti è carico inutile sul DB. File: [HealthEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/HealthEndpoints.cs).
   *Fix:* separare liveness (no DB) da readiness (DB con cache breve), o usare `AddHealthChecks().AddNpgSql()`.
 
-- [ ] **R-24 (P3) — DbContext non poolizzato.** `AddDbContextPool` ridurrebbe le allocazioni, ma confligge con l'iniezione di `ITenantContext` scoped nel DbContext.
+- [~] **R-24 (P3) — DbContext non poolizzato.** ⏸ deferito (richiede profiling, vedi "Deferiti") `AddDbContextPool` ridurrebbe le allocazioni, ma confligge con l'iniezione di `ITenantContext` scoped nel DbContext.
   *Fix:* valutare pooling con un pattern compatibile (es. interfaccia tenant impostata post-resolve) solo se il profiling lo giustifica.
 
 ---
 
 ## 6. Qualità, Manutenibilità, Coerenza commenti/doc
 
-- [ ] **R-25 (P2) — Email `await`-ate post-commit bloccano la response.**
+- [~] **R-25 (P2) — Email `await`-ate post-commit bloccano la response.** ⏸ deferito a V2 (vedi "Deferiti")
   Accettabile con lo stub no-op, ma con Brevo (V2) bloccherebbe la risposta e, se l'invio fallisse, non c'è retry/persistenza. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
   *Fix (pianificazione V2):* pattern **outbox** + `BackgroundService` per invio affidabile e non bloccante; aggiornare il contratto/uso di `IEmailService` di conseguenza.
 
-- [ ] **R-26 (P3) — Duplicazione costruzione `ServiceSlotConfig`** in `AvailabilityService` e `BookingService`.
+- [x] **R-26 (P3) — Duplicazione costruzione `ServiceSlotConfig`** ✅ risolto (ServiceSlotConfig.From) in `AvailabilityService` e `BookingService`.
   *Fix:* estrarre una factory `ServiceSlotConfig.From(Service)`.
 
-- [ ] **R-27 (P3) — Timestamp `created_at/updated_at` impostati a mano** nelle entità; nessun meccanismo centrale.
+- [x] **R-27 (P3) — Timestamp `created_at/updated_at` impostati a mano** nelle entità; nessun meccanismo centrale. ✅ risolto (TimestampInterceptor)
   *Impatto:* arrivando admin/CLF è facile dimenticarne uno → incoerenza.
   *Fix:* `SaveChanges` interceptor che valorizza i timestamp sulle entità che li espongono.
 
-- [ ] **R-28 (P3) — `BookingDetailResponse` usa `?? string.Empty`** per nome servizio/staff soft-deleted → nome vuoto silenzioso. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
+- [x] **R-28 (P3) — `BookingDetailResponse` usa `?? string.Empty`** ✅ risolto (Include con IgnoreQueryFilters + tenant) per nome servizio/staff soft-deleted → nome vuoto silenzioso. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
   *Fix:* caricare service/staff con `IgnoreQueryFilters` per il dettaglio storico, o etichetta esplicita.
 
-- [ ] **R-29 (P3) — Coerenza commenti.** Complessivamente buona; due punti da tenere allineati dopo i fix:
+- [x] **R-29 (P3) — Coerenza commenti.** ✅ verificata durante i fix Complessivamente buona; due punti da tenere allineati dopo i fix:
   - il commento “GDPR-safe” su Serilog ([Program.cs](src/WebAgency_BookingSystem.Api/Program.cs)) presuppone che l'IP non sia loggato: rivalutare introducendo ForwardedHeaders/logging IP;
   - i riferimenti all'header `X-Api-Key` vs `X-API-Key` (vedi `DUBBI_SESSIONE.md` D-06) vanno uniformati alla decisione finale.
 
-- [ ] **R-33 (P2) — Nessun analyzer / `TreatWarningsAsErrors` / `.editorconfig` condiviso.**
+- [x] **R-33 (P2) — Nessun analyzer / `TreatWarningsAsErrors` / `.editorconfig` condiviso.** ✅ risolto (+ MSB3277)
   I `.csproj` non abilitano `EnableNETAnalyzers`/`AnalysisLevel` né trattano i warning come errori; non c'è `.editorconfig` per stile/regole condivise. I 6 warning MSB3277 del tool restano silenziosi (vedi `DUBBI_SESSIONE.md` D-11).
   *Impatto:* per una codebase “di alto livello” la qualità non è imposta automaticamente; i warning si accumulano.
   *Fix:* `Directory.Build.props` con analyzer abilitati e (almeno in CI) warnings-as-errors; `.editorconfig` condiviso. Risolvere prima i warning esistenti.
