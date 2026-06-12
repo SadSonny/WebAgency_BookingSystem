@@ -166,3 +166,5 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-12 | Test | Step 9.1 (parziale): suite unit `AvailabilityCalculatorTests` — 23 test verdi sul cuore puro dell'algoritmo, senza Docker. Rimosso placeholder `UnitTest1.cs`. |
 | 2026-06-12 | Refactor+Test | `HoursResolver` spostato in `Core.Availability` (logica pura) + 9 unit test. Step 9.1 completato. |
 | 2026-06-12 | Test | Step 9.2 (parziale): `BookingServiceTests` — 9 test su consultazione/disdetta (NSubstitute + EF InMemory). `CreateAsync` rinviato a integration (Docker). Suite totale: **41 test verdi**. |
+| 2026-06-12 | Hardening | Risolti rilievi production-readiness della review: CORS (R-06), ForwardedHeaders (R-07), Dockerfile `$PORT` runtime + utente non-root + `.dockerignore` (R-08/R-10/R-11), HttpsRedirection mitigata (R-09), errori di binding nell'envelope (R-31). |
+| 2026-06-12 | Observability | Logging strutturato in middleware/servizi (R-01), correlation id `X-Trace-Id` + `RequestId`/`TenantId` in LogContext (R-02), distinzione 409 contesa/pieno (R-04). Build + 41 test verdi. |
