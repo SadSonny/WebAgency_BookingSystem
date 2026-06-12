@@ -9,10 +9,8 @@
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**→ Sessione con Docker**: applicare la migrazione e validare a runtime (vedi `DOCKER_SESSION_TODO.md`).
-Poi proseguire con la **Sezione 6 (Admin API)** e **7 (CLI provisioning)**, quindi V2 (email, test).
-> Sessione autonoma del 2026-06-12 (senza Docker): implementati i blocchi 1→5 (V1 fino agli endpoint pubblici). Gate `dotnet build` verde su tutti i progetti in scope.
-> Fuori scope concordato di questa sessione: 2.8 (DTO admin), Sezione 6 (Admin), Sezione 7 (CLI), Sezione 9 (test).
+**→ Sessione con Docker**: applicare la migrazione e validare a runtime tutta la V1 (pubblico + admin + CLI provisioning) — vedi `DOCKER_SESSION_TODO.md`. Poi V2 (email Brevo) e completamento test (integrazione, R-30/R-17).
+> **V1 funzionalmente completa** (Sezioni 1-7): endpoint pubblici, Admin API (JWT + CRUD), CLI provisioning. `dotnet build` verde (0 warning), 41 unit test verdi. Manca solo la validazione a runtime e i test d'integrazione, che richiedono Docker.
 
 ### Come aggiornare questo file
 - Spunta `[x]` il task completato immediatamente dopo averlo finito e verificato con `dotnet build`.

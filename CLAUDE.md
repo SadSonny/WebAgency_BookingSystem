@@ -2,16 +2,17 @@
 
 ## Stato Corrente del Progetto
 
-> **V1 — ENDPOINT PUBBLICI IMPLEMENTATI (Blocchi 1→5).**
-> Infra (docker-compose, Dockerfile, settings), Core (entità, `Result<T>`, DTO, interfacce, enum),
-> Infrastructure (DbContext + global query filter, config EF, **migrazione `InitialSchema` generata, non applicata**,
-> repository, email stub), middleware (tenant resolution, rate limiting, error handling, Serilog) ed
-> endpoint pubblici 5.1–5.8 (health, config, services, staff, availability, bookings) sono implementati.
-> Build `dotnet build` verde sui progetti in scope.
+> **V1 FUNZIONALMENTE COMPLETA (Sezioni 1→7).**
+> Implementati: infra, Core, Infrastructure (DbContext + global query filter, config EF, **migrazione `InitialSchema`
+> generata, NON applicata**, repository, cache, interceptor, email stub), middleware (tenant resolution, JWT admin,
+> rate limiting, error handling, correlation, Serilog), **endpoint pubblici 5.1-5.8**, **Admin API 6.1-6.14**
+> (JWT + CRUD servizi/staff/orari/chiusure/prenotazioni), **CLI provisioning** (Sezione 7).
+> Build `dotnet build` verde (0 warning, analyzer + warnings-as-errors). 41 unit test verdi.
+> Tutti i rilievi della review fattibili senza Docker sono chiusi (`CODE_REVIEW_FINDINGS.md`).
 
-**Fase attuale:** V1 endpoint pubblici completata in sessione autonoma (2026-06-12, senza Docker).
+**Fase attuale:** V1 funzionalmente completa (sessioni autonome 2026-06-12/13, senza Docker).
 
-**Prossimo task:** Sessione con Docker — applicare migrazione e validare a runtime (`DOCKER_SESSION_TODO.md`); poi Sezione 6 (Admin API) e 7 (CLI provisioning). Dubbi aperti in `DUBBI_SESSIONE.md`.
+**Prossimo task:** Sessione con Docker — applicare la migrazione e validare a runtime tutta la V1 + integration test (`DOCKER_SESSION_TODO.md`). Poi V2 (email Brevo). Dubbi/decisioni aperte in `DUBBI_SESSIONE.md` (D-01…D-15).
 
 ---
 
