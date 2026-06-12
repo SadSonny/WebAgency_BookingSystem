@@ -18,4 +18,17 @@ public static class BookingStatusExtensions
         BookingStatus.Completed => "completed",
         _ => status.ToString().ToLowerInvariant(),
     };
+
+    /// <summary>Converte la stringa snake_case del contratto nel relativo <see cref="BookingStatus"/>.</summary>
+    public static bool TryParseApi(string? value, out BookingStatus status)
+    {
+        switch (value)
+        {
+            case "confirmed": status = BookingStatus.Confirmed; return true;
+            case "cancelled": status = BookingStatus.Cancelled; return true;
+            case "no_show": status = BookingStatus.NoShow; return true;
+            case "completed": status = BookingStatus.Completed; return true;
+            default: status = default; return false;
+        }
+    }
 }

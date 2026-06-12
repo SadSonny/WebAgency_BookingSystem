@@ -42,7 +42,7 @@ Poi proseguire con la **Sezione 6 (Admin API)** e **7 (CLI provisioning)**, quin
 - [x] 2.5 Interfacce: `IAvailabilityService`, `IBookingService`, `IEmailService` (+ `ITenantContext`)
 - [x] 2.6 Interfacce: `ITenantRepository`, `IServiceRepository`, `IStaffRepository`, `IBookingRepository`
 - [x] 2.7 DTOs Request/Response per ogni endpoint pubblico (+ `ErrorResponse`)
-- [ ] 2.8 DTOs Request/Response per ogni endpoint admin — **RINVIATO** con endpoint admin (6.x), fuori scope sessione corrente (evita dead code, vedi D-08)
+- [x] 2.8 DTOs Request/Response per ogni endpoint admin — implementati con la Sezione 6 (auth, servizi, staff, orari/chiusure, prenotazioni)
 - [x] 2.9 Enums: `BufferPosition`, `BookingStatus`, `UserRole`, `DayOfWeekIndex`
 
 ### 3. Infrastructure Layer (`WebAgency_BookingSystem.Infrastructure`)
@@ -73,20 +73,20 @@ Poi proseguire con la **Sezione 6 (Admin API)** e **7 (CLI provisioning)**, quin
 - [x] 5.8 `DELETE /api/v1/bookings/{id}?token=...` — 403 oltre preavviso
 
 ### 6. Admin API
-- [ ] 6.1 `POST /api/v1/admin/auth/token` (email + password → JWT)
-- [ ] 6.2 JWT middleware (validazione + estrazione `user_id`, `tenant_id`, `role`)
-- [ ] 6.3 `GET /api/v1/admin/bookings` (lista con filtri: data, staff, servizio, stato)
-- [ ] 6.4 `PATCH /api/v1/admin/bookings/{id}` (aggiorna stato: no-show, ecc.)
-- [ ] 6.5 `GET /api/v1/admin/services`
-- [ ] 6.6 `POST /api/v1/admin/services`
-- [ ] 6.7 `PUT /api/v1/admin/services/{id}`
-- [ ] 6.8 `DELETE /api/v1/admin/services/{id}` (soft delete)
-- [ ] 6.9 `GET /api/v1/admin/staff`
-- [ ] 6.10 `POST /api/v1/admin/staff`
-- [ ] 6.11 `PUT /api/v1/admin/staff/{id}`
-- [ ] 6.12 `DELETE /api/v1/admin/staff/{id}` (soft delete)
-- [ ] 6.13 `PUT /api/v1/admin/business-hours`
-- [ ] 6.14 `PUT /api/v1/admin/closures`
+- [x] 6.1 `POST /api/v1/admin/auth/token` (tenantSlug + email + password → JWT) — login per slug (D-15)
+- [x] 6.2 JWT bearer (validazione firma/issuer/audience/lifetime) + `AdminContextMiddleware` (tenant dal claim `tenant_id`)
+- [x] 6.3 `GET /api/v1/admin/bookings` (filtri: dateFrom/dateTo, staff, servizio, stato)
+- [x] 6.4 `PATCH /api/v1/admin/bookings/{id}` (aggiorna stato: no_show/completed/cancelled, + audit)
+- [x] 6.5 `GET /api/v1/admin/services` (inclusi inattivi)
+- [x] 6.6 `POST /api/v1/admin/services`
+- [x] 6.7 `PUT /api/v1/admin/services/{id}`
+- [x] 6.8 `DELETE /api/v1/admin/services/{id}` (soft delete) + invalidazione cache
+- [x] 6.9 `GET /api/v1/admin/staff` (con servizi/orari)
+- [x] 6.10 `POST /api/v1/admin/staff` (con assegnazione servizi + orari)
+- [x] 6.11 `PUT /api/v1/admin/staff/{id}`
+- [x] 6.12 `DELETE /api/v1/admin/staff/{id}` (soft delete) + invalidazione cache
+- [x] 6.13 `PUT /api/v1/admin/business-hours` (sostituzione in blocco)
+- [x] 6.14 `PUT /api/v1/admin/closures` (sostituzione in blocco)
 
 ### 7. CLI Provisioning (`WebAgency_BookingSystem.TenantProvisioning`)
 - [x] 7.1 JSON schema per file provisioning (`ProvisioningModels`)
@@ -169,5 +169,6 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-12 | Test | Step 9.2 (parziale): `BookingServiceTests` — 9 test su consultazione/disdetta (NSubstitute + EF InMemory). `CreateAsync` rinviato a integration (Docker). Suite totale: **41 test verdi**. |
 | 2026-06-12 | Hardening | Risolti rilievi production-readiness della review: CORS (R-06), ForwardedHeaders (R-07), Dockerfile `$PORT` runtime + utente non-root + `.dockerignore` (R-08/R-10/R-11), HttpsRedirection mitigata (R-09), errori di binding nell'envelope (R-31). |
 | 2026-06-12 | Observability | Logging strutturato in middleware/servizi (R-01), correlation id `X-Trace-Id` + `RequestId`/`TenantId` in LogContext (R-02), distinzione 409 contesa/pieno (R-04). Build + 41 test verdi. |
+| 2026-06-13 | Admin API | Sezione 6 completata: auth JWT (login per slug, AD-08) + AdminContextMiddleware; CRUD servizi (6.5-6.8), staff con servizi/orari (6.9-6.12), orari/chiusure (6.13-6.14), prenotazioni lista+filtri e PATCH stato (6.3-6.4). DTO admin (2.8). Invalidazione cache su mutazioni. Build 0 warning, 41 test verdi. **V1 funzionalmente completa** (manca solo validazione runtime + test integrazione, richiedono Docker). |
 | 2026-06-12 | CLI | Sezione 7 completata: CLI `TenantProvisioning` (modelli JSON, validazione, flusso transazionale, API key `bk_live_` + hash, admin Owner bcrypt, audit). Sample `barbershop-demo.json` + README. Solo CREATE (`--update` rinviato). Build 0 warning, 41 test verdi. |
 | 2026-06-12 | Hardening V2 | Chiusi TUTTI i rilievi review fattibili senza Docker: rate-limit per IP (R-14), tenant in ITenantContext (R-21), retry DB + execution strategy (R-12), 409 su DbUpdate (R-18), Result/factory cleanup (R-20/R-26), enrichers log (R-03), Scalar solo non-prod (R-13), closures tenant-local (R-19), liveness/readiness (R-23), cache API key + dati tenant (R-15/R-22), interceptor timestamp (R-27), dettaglio soft-deleted (R-28), analyzer+editorconfig+warnings-as-errors+MSB3277 (R-33). Deferiti (Docker/V2/processo): R-16, R-17, R-24, R-25, R-30, R-32. Build 0 warning, 41 test verdi. |

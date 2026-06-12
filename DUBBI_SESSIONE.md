@@ -65,6 +65,11 @@
 **Contesto:** lo scope concordato è 1.1→5.8 (endpoint pubblici). I DTO admin servono agli endpoint admin (6.x), fuori scope.
 **Decisione:** step 2.8 NON implementato in questa sessione per non introdurre dead code (CLAUDE.md vieta implementazioni parziali/non usate). Sarà fatto insieme agli endpoint admin (6.x). Step 2.8 resta `[ ]` nel piano con nota.
 
+### D-15 — Login admin: identificazione del tenant tramite slug 🟡
+**Contesto:** lo spec non definisce come l'admin identifica il tenant al login (l'email è unica solo per tenant). Serviva una disambiguazione.
+**Default adottato:** `POST /admin/auth/token` accetta `{ tenantSlug, email, password }`. Risolve il tenant per slug, l'utente per (tenant, email), verifica bcrypt, emette JWT con claim `sub`/`tenant_id`/`role` (AD-08). Errore neutro 401 in ogni caso di fallimento. Le rotte admin successive prendono il tenant dal claim `tenant_id` (AdminContextMiddleware).
+**Da confermare:** il frontend admin invierà lo slug? Alternative: usare l'header X-Api-Key per identificare il tenant al login, oppure email globalmente unica. Inoltre: `last_login_at` non viene aggiornato al login (semplificazione, da valutare).
+
 ### D-12 — Provisioning: utente admin con password generata 🟡
 **Contesto:** lo step 7.5 richiede di creare l'utente admin (Owner) con password bcrypt, ma il JSON di provisioning (spec 05) NON contiene un campo password.
 **Default adottato:** il CLI genera una password casuale (18 hex), la salva come hash bcrypt e la mostra **una sola volta** in output (come l'API key). L'email admin = `ownerEmail` del tenant.

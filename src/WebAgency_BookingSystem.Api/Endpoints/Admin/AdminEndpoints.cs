@@ -15,7 +15,7 @@ internal static class AdminEndpoints
         app.MapAdminServiceEndpoints();
         app.MapAdminScheduleEndpoints();
         app.MapAdminStaffEndpoints();
-        // Prenotazioni admin (6D) aggiunte nel blocco dedicato.
+        app.MapAdminBookingEndpoints();
         return app;
     }
 }

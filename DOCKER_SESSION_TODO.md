@@ -50,6 +50,13 @@
 - [ ] Buffer: slot immediatamente successivo a prenotazione con buffer > 0 → non disponibile (vedi DUBBI D-10)
 - [ ] Pausa pranzo, anticipo minimo, bordo chiusura: confrontare con i casi di `04-logica-disponibilita.md`
 
+## 5-bis. Smoke-test Admin API (Sezione 6)
+> Il provisioning (§4) crea anche un utente admin Owner con password mostrata una volta.
+- [ ] `POST /api/v1/admin/auth/token` con `{ tenantSlug, email, password }` del tenant demo → 200 con JWT; credenziali errate → 401 neutro.
+- [ ] Usare il JWT come `Authorization: Bearer` per: `GET /admin/services`, `POST/PUT/DELETE /admin/services`, `GET /admin/staff` + CRUD, `PUT /admin/business-hours`, `PUT /admin/closures`, `GET /admin/bookings` (con filtri), `PATCH /admin/bookings/{id}` (stato).
+- [ ] Senza token → 401; token valido ma tenant disattivato → 403; entrambi nell'envelope d'errore.
+- [ ] Dopo una mutazione admin su servizi/staff/orari, verificare che la lista PUBBLICA rifletta la modifica (cache invalidata, R-22).
+
 ## 6-bis. Verifica fix di hardening (sessione 2026-06-12)
 - [ ] **CORS (R-06):** preflight `OPTIONS` da un'origine consentita → 200/204 con header CORS; da origine non in `Cors:AllowedOrigins` (in non-Development) → bloccato. Verificare che il preflight NON richieda `X-Api-Key`.
 - [ ] **Porta runtime (R-08):** con `PORT` impostata, l'app ascolta su quella porta (log Kestrel "Now listening on ...:$PORT").
