@@ -14,6 +14,7 @@ using WebAgency_BookingSystem.Infrastructure.Persistence;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Caching;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Interceptors;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Repositories;
+using WebAgency_BookingSystem.Infrastructure.Services.Admin;
 using WebAgency_BookingSystem.Infrastructure.Services;
 using WebAgency_BookingSystem.Infrastructure.Tenancy;
 
@@ -58,6 +59,10 @@ public static class DependencyInjection
         // Admin auth (6.x): generazione/validazione JWT, login.
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
         services.AddScoped<IAdminAuthService, AdminAuthService>();
+
+        // Admin CRUD (6.x): servizi, orari/chiusure, staff, prenotazioni.
+        services.AddScoped<IAdminServiceCatalog, AdminServiceCatalog>();
+        services.AddScoped<IAdminScheduleManager, AdminScheduleManager>();
 
         services.AddScoped<IAvailabilityService, AvailabilityService>();
         services.AddScoped<IBookingService, BookingService>();

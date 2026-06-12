@@ -12,7 +12,9 @@ internal static class AdminEndpoints
     public static IEndpointRouteBuilder MapAdminEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapAdminAuthEndpoints();
-        // I gruppi CRUD (servizi/staff/orari/chiusure/prenotazioni) vengono aggiunti nei blocchi 6B-6D.
+        app.MapAdminServiceEndpoints();
+        app.MapAdminScheduleEndpoints();
+        // Staff (6C) e prenotazioni (6D) aggiunti nei rispettivi blocchi.
         return app;
     }
 }
