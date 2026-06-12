@@ -1,0 +1,10 @@
+<!-- [INTENT]: Impostazioni MSBuild condivise da tutti i progetti della solution (R-33). Abilita gli analyzer
+     .NET (qualità del codice) e tratta i warning come errori, così la qualità è imposta automaticamente e i
+     warning non si accumulano. Le regole di stile/severità sono in .editorconfig. -->
+<Project>
+  <PropertyGroup>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

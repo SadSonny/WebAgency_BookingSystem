@@ -1,0 +1,38 @@
+# [INTENT]: Regole di stile e severità degli analyzer condivise (R-33). Gli analyzer .NET sono attivi e i
+# warning sono trattati come errori (vedi Directory.Build.props). Qui silenziamo, con motivazione, le sole
+# regole che rappresentano scelte deliberate di questo progetto, mantenendo attive tutte le altre.
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.cs]
+# Stile preferito
+csharp_style_namespace_declarations = file_scoped:suggestion
+dotnet_sort_system_directives_first = true
+
+# ── Soppressioni motivate degli analyzer ─────────────────────────────────────
+# CA1707: il nome della solution/progetto "WebAgency_BookingSystem" usa underscore per convenzione stabilita.
+dotnet_diagnostic.CA1707.severity = none
+# CA1716: "Error" (tipo del pattern Result) e il namespace "Public" sono nomi di dominio appropriati e chiari.
+dotnet_diagnostic.CA1716.severity = none
+# CA1848: l'adozione dei LoggerMessage source-generated non è giustificata ora (logging non in hot-path critico).
+dotnet_diagnostic.CA1848.severity = none
+# CA1873: i log usano template strutturati con argomenti a basso costo; nessuna valutazione costosa eager.
+dotnet_diagnostic.CA1873.severity = none
+# CA1861: gli array letterali sono metadati OpenAPI/CORS valutati UNA volta allo startup: irrilevante.
+dotnet_diagnostic.CA1861.severity = none
+# CA1859: i ritorni via interfaccia (IReadOnlyList, ITenantCache, ...) sono intenzionali per DIP/testabilità.
+dotnet_diagnostic.CA1859.severity = none
+# CA1305: i ToString usano SOLO pattern culture-invarianti ("o", "HH:mm", "yyyy-MM-dd") con separatori
+# letterali e cifre, quindi l'output è deterministico a prescindere dalla cultura del processo.
+dotnet_diagnostic.CA1305.severity = none
