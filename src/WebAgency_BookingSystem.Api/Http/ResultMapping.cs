@@ -28,6 +28,13 @@ internal static class ResultMapping
         Results.Json(new ErrorResponse(error.Code, error.Message), statusCode: error.Type.ToStatusCode());
 
     /// <summary>
+    /// Risposta 400 <c>bad_request</c> per richieste malformate (parametri obbligatori mancanti o non
+    /// parsabili), nell'envelope standard del contratto.
+    /// </summary>
+    public static IResult BadRequest(string message) =>
+        Results.Json(new ErrorResponse("bad_request", message), statusCode: StatusCodes.Status400BadRequest);
+
+    /// <summary>
     /// Restituisce <paramref name="onSuccess"/> applicato al valore se il Result è positivo, altrimenti
     /// la response di errore mappata.
     /// </summary>

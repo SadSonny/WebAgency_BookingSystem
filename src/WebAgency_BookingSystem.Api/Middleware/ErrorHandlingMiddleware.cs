@@ -26,6 +26,20 @@ public sealed class ErrorHandlingMiddleware
         {
             await _next(context);
         }
+        catch (BadHttpRequestException ex)
+        {
+            // WHY: corpo JSON malformato o binding del body fallito producono questa eccezione. La mappiamo
+            // all'envelope { type: bad_request } per coerenza con il contratto, invece del 500 generico.
+            _logger.LogWarning(ex, "Richiesta malformata su {Method} {Path}", context.Request.Method, context.Request.Path);
+
+            if (context.Response.HasStarted)
+            {
+                throw;
+            }
+
+            await HttpErrorWriter.WriteAsync(context, StatusCodes.Status400BadRequest,
+                "bad_request", "Richiesta non valida o corpo della richiesta malformato.", context.RequestAborted);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Eccezione non gestita su {Method} {Path}", context.Request.Method, context.Request.Path);

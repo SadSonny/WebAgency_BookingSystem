@@ -49,9 +49,14 @@ internal static class BookingEndpoints
         .Produces<ErrorResponse>(StatusCodes.Status422UnprocessableEntity);
 
         app.MapGet("/api/v1/bookings/{id:guid}", async (
-            Guid id, Guid token, IBookingService bookings, CancellationToken ct) =>
+            Guid id, Guid? token, IBookingService bookings, CancellationToken ct) =>
         {
-            var result = await bookings.GetByTokenAsync(id, token, ct);
+            if (token is not Guid accessToken)
+            {
+                return ResultMapping.BadRequest("Il parametro token è obbligatorio.");
+            }
+
+            var result = await bookings.GetByTokenAsync(id, accessToken, ct);
             return result.Match(detail => Results.Ok(detail));
         })
         .WithName("GetBooking")
@@ -60,14 +65,20 @@ internal static class BookingEndpoints
         .WithTags("Prenotazioni")
         .RequireRateLimiting(RateLimitingPolicies.PublicApi)
         .Produces<BookingDetailResponse>(StatusCodes.Status200OK)
+        .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
         .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ErrorResponse>(StatusCodes.Status403Forbidden)
         .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
 
         app.MapDelete("/api/v1/bookings/{id:guid}", async (
-            Guid id, Guid token, IBookingService bookings, CancellationToken ct) =>
+            Guid id, Guid? token, IBookingService bookings, CancellationToken ct) =>
         {
-            var result = await bookings.CancelAsync(id, token, ct);
+            if (token is not Guid accessToken)
+            {
+                return ResultMapping.BadRequest("Il parametro token è obbligatorio.");
+            }
+
+            var result = await bookings.CancelAsync(id, accessToken, ct);
             return result.Match(cancel => Results.Ok(cancel));
         })
         .WithName("CancelBooking")
@@ -76,6 +87,7 @@ internal static class BookingEndpoints
         .WithTags("Prenotazioni")
         .RequireRateLimiting(RateLimitingPolicies.PublicApi)
         .Produces<CancelBookingResponse>(StatusCodes.Status200OK)
+        .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
         .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ErrorResponse>(StatusCodes.Status403Forbidden)
         .Produces<ErrorResponse>(StatusCodes.Status404NotFound)
