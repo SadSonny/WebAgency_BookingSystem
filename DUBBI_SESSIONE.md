@@ -65,6 +65,12 @@
 **Contesto:** lo scope concordato è 1.1→5.8 (endpoint pubblici). I DTO admin servono agli endpoint admin (6.x), fuori scope.
 **Decisione:** step 2.8 NON implementato in questa sessione per non introdurre dead code (CLAUDE.md vieta implementazioni parziali/non usate). Sarà fatto insieme agli endpoint admin (6.x). Step 2.8 resta `[ ]` nel piano con nota.
 
+### D-10 — Semantica del buffer nell'algoritmo di disponibilità 🟡
+**Contesto:** la spec `04-logica-disponibilita.md` (precedente ad AD-03) modella il buffer solo come tempo aggiunto DOPO l'appuntamento e dichiara (riga 165) che le prenotazioni esistenti NON includono il buffer. Ma il caso di test obbligatorio (riga 345) richiede che, con buffer > 0, uno slot immediatamente successivo a una prenotazione esistente risulti NON disponibile — il che è impossibile col modello "solo new slot, solo dopo".
+**Default adottato:** il buffer estende l'intervallo "occupato" di OGNI appuntamento (nuovo ed esistente) secondo `BufferPosition` (Before/After/Both). Due appuntamenti confliggono se gli intervalli estesi si sovrappongono. Questo soddisfa sia AD-03 sia i test 345/346 e degrada esattamente al comportamento spec quando buffer = 0.
+**Conseguenza:** con `BufferPosition.Both` la distanza imposta tra due appuntamenti adiacenti è 2×buffer; con Before/After è 1×buffer. L'appuntamento+buffer deve stare dentro l'orario di apertura.
+**Da confermare:** la semantica del buffer (in particolare Both = isolamento completo) corrisponde alle attese di business? Per servizi a staff con buffer di servizi diversi, si applica il buffer del servizio in prenotazione.
+
 ### D-09 — Soft delete via `DeletedAt` su services/staff 🟡
 **Contesto:** lo schema SQL (02) non mostra `deleted_at` su `services`/`staff`, ma CLAUDE.md (convenzioni) e `01-architettura` indicano soft delete tramite `deleted_at`.
 **Default adottato:** aggiunto `DeletedAt TIMESTAMPTZ NULL` a `Service` e `Staff`; il global query filter escluderà i record soft-deleted. Deviazione di schema annotata nel piano.
