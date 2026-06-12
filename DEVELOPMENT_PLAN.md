@@ -89,13 +89,14 @@ Poi proseguire con la **Sezione 6 (Admin API)** e **7 (CLI provisioning)**, quin
 - [ ] 6.14 `PUT /api/v1/admin/closures`
 
 ### 7. CLI Provisioning (`WebAgency_BookingSystem.TenantProvisioning`)
-- [ ] 7.1 Definizione JSON schema per file provisioning
-- [ ] 7.2 Validazione input con errori chiari
-- [ ] 7.3 Flusso transazionale: tenant → business hours → closures → servizi → staff
-- [ ] 7.4 Generazione API key (SHA-256 hash, formato `bk_live_...`)
-- [ ] 7.5 Creazione admin user (password hash bcrypt, ruolo `Owner`)
-- [ ] 7.6 INSERT `audit_log` al completamento
-- [ ] 7.7 File `samples/barbershop-demo.json` (tenant di test completo)
+- [x] 7.1 JSON schema per file provisioning (`ProvisioningModels`)
+- [x] 7.2 Validazione input con errori chiari (`ProvisioningValidator`, raccoglie tutti gli errori)
+- [x] 7.3 Flusso transazionale: tenant → business hours → closures → servizi → staff (un solo `SaveChanges`)
+- [x] 7.4 Generazione API key (SHA-256 hash via `ApiKeyHasher`, formato `bk_live_...`)
+- [x] 7.5 Creazione admin user (password bcrypt generata, ruolo `Owner`) — mostrata una sola volta
+- [x] 7.6 INSERT `audit_log` (`tenant_created`, actor `provisioning`) al completamento
+- [x] 7.7 File `samples/barbershop-demo.json` + `README.md`
+- **Nota:** solo modalità CREATE in V1; `--update` rinviato. Esecuzione reale richiede DB (vedi `DOCKER_SESSION_TODO.md`).
 
 ---
 
@@ -168,4 +169,5 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-12 | Test | Step 9.2 (parziale): `BookingServiceTests` — 9 test su consultazione/disdetta (NSubstitute + EF InMemory). `CreateAsync` rinviato a integration (Docker). Suite totale: **41 test verdi**. |
 | 2026-06-12 | Hardening | Risolti rilievi production-readiness della review: CORS (R-06), ForwardedHeaders (R-07), Dockerfile `$PORT` runtime + utente non-root + `.dockerignore` (R-08/R-10/R-11), HttpsRedirection mitigata (R-09), errori di binding nell'envelope (R-31). |
 | 2026-06-12 | Observability | Logging strutturato in middleware/servizi (R-01), correlation id `X-Trace-Id` + `RequestId`/`TenantId` in LogContext (R-02), distinzione 409 contesa/pieno (R-04). Build + 41 test verdi. |
+| 2026-06-12 | CLI | Sezione 7 completata: CLI `TenantProvisioning` (modelli JSON, validazione, flusso transazionale, API key `bk_live_` + hash, admin Owner bcrypt, audit). Sample `barbershop-demo.json` + README. Solo CREATE (`--update` rinviato). Build 0 warning, 41 test verdi. |
 | 2026-06-12 | Hardening V2 | Chiusi TUTTI i rilievi review fattibili senza Docker: rate-limit per IP (R-14), tenant in ITenantContext (R-21), retry DB + execution strategy (R-12), 409 su DbUpdate (R-18), Result/factory cleanup (R-20/R-26), enrichers log (R-03), Scalar solo non-prod (R-13), closures tenant-local (R-19), liveness/readiness (R-23), cache API key + dati tenant (R-15/R-22), interceptor timestamp (R-27), dettaglio soft-deleted (R-28), analyzer+editorconfig+warnings-as-errors+MSB3277 (R-33). Deferiti (Docker/V2/processo): R-16, R-17, R-24, R-25, R-30, R-32. Build 0 warning, 41 test verdi. |

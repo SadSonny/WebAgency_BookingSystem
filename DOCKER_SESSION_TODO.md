@@ -24,10 +24,16 @@
 - [ ] Senza header `X-Api-Key` su un endpoint tenant-scoped → 401 `unauthorized`
 - [ ] Con `X-Api-Key` non valida → 403 `forbidden`
 
-## 4. Provisioning di un tenant di test
-> Richiede la CLI (Sezione 7), non ancora implementata. In alternativa inserire manualmente da pgAdmin un
-> tenant + una API key (ricordando che si salva l'**hash SHA-256** della chiave, non la chiave in chiaro —
-> vedi `ApiKeyHasher`). Generare l'hash con lo stesso algoritmo.
+## 4. Provisioning di un tenant di test (CLI — Sezione 7, implementata)
+- [ ] Applicato lo schema (passo 2), eseguire:
+  ```bash
+  dotnet run --project tools/WebAgency_BookingSystem.TenantProvisioning -- \
+    --input samples/barbershop-demo.json \
+    --connection "Host=localhost;Port=5432;Database=bookingsystem;Username=postgres;Password=postgres"
+  ```
+- [ ] Verificare l'output: API key `bk_live_...` e credenziali admin (mostrate una sola volta) → salvarle.
+- [ ] Ispezionare in pgAdmin: tenant, 7 orari, 2 chiusure, 2 servizi, 2 staff, associazioni, 1 api key (hash), 1 user Owner, 1 audit `tenant_created`.
+- [ ] Usare l'API key restituita come header `X-Api-Key` negli smoke-test del passo 5.
 
 ## 5. Validazione funzionale endpoint (con tenant valido)
 - [ ] `GET /api/v1/tenant/config` → 7 giorni di orari, chiusure future, `bufferMinutes: 0`

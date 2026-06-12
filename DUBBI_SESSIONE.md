@@ -65,7 +65,25 @@
 **Contesto:** lo scope concordato è 1.1→5.8 (endpoint pubblici). I DTO admin servono agli endpoint admin (6.x), fuori scope.
 **Decisione:** step 2.8 NON implementato in questa sessione per non introdurre dead code (CLAUDE.md vieta implementazioni parziali/non usate). Sarà fatto insieme agli endpoint admin (6.x). Step 2.8 resta `[ ]` nel piano con nota.
 
-### D-11 — Warning MSB3277 in TenantProvisioning 🟡
+### D-12 — Provisioning: utente admin con password generata 🟡
+**Contesto:** lo step 7.5 richiede di creare l'utente admin (Owner) con password bcrypt, ma il JSON di provisioning (spec 05) NON contiene un campo password.
+**Default adottato:** il CLI genera una password casuale (18 hex), la salva come hash bcrypt e la mostra **una sola volta** in output (come l'API key). L'email admin = `ownerEmail` del tenant.
+**Da confermare:** è il flusso desiderato? Alternativa: non creare l'utente al provisioning e prevedere un flusso "imposta password" al primo accesso admin (6.x).
+
+### D-13 — Buffer per-servizio nel file di provisioning 🟡
+**Contesto:** AD-03 ha spostato il buffer sul servizio, ma il JSON di provisioning (spec 05) ha `bufferMinutes` solo a livello `bookingRules` (tenant) e nessun campo buffer per servizio.
+**Default adottato:** aggiunti a `services[]` i campi opzionali `bufferEnabled`/`bufferMinutes`/`bufferPosition` (default: disattivato). Il `bookingRules.bufferMinutes` tenant-level NON viene applicato (coerente con D-07).
+**Da confermare:** ok i campi buffer per-servizio nel file? Va rimosso `bufferMinutes` dal blocco `bookingRules` del template?
+
+### D-14 — Provisioning solo CREATE (no `--update`) 🟡
+**Contesto:** la spec 05 descrive una modalità `--update` (delete/ricrea orari, merge chiusure, upsert servizi/staff per nome). Lo step 7.3 del piano elenca solo il flusso transazionale di creazione.
+**Default adottato:** implementata SOLO la modalità CREATE (sufficiente a creare tenant di test e sbloccare la sessione Docker). Con `--update` il CLI esce con messaggio "non ancora supportato"; se lo slug esiste, errore.
+**Da confermare:** serve `--update` in V1 o può attendere?
+
+### D-11 — Warning MSB3277 in TenantProvisioning 🟢 RISOLTO
+**Risoluzione:** allineate le versioni EF Core a 10.0.9 (R-33). 0 warning su tutta la solution.
+
+### D-11b — Warning MSB3277 in TenantProvisioning (storico) 🟡
 **Contesto:** la solution compila con 0 errori; restano 6 warning MSB3277 SOLO nel progetto `TenantProvisioning` (tool fuori scope, step 7), per unificazione di versione di `Microsoft.EntityFrameworkCore.Abstractions` (10.0.4 vs 10.0.9) ereditata transitivamente da Infrastructure. Nessun impatto funzionale.
 **Default adottato:** lasciati i warning, dato che il tool sarà implementato e referenziato correttamente nello step 7. I progetti in scope (Core/Infrastructure/Api) compilano con 0 warning.
 **Da confermare:** ok rinviare la pulizia a quando si implementa la CLF (7.x)? In alternativa basta un `PackageReference` diretto a EF Core 10.0.9 nel tool.

@@ -1,0 +1,91 @@
+{
+  "slug": "barbershop-demo",
+  "name": "Barbershop Demo",
+  "siteUrl": "https://barbershop-demo.it",
+  "ownerEmail": "owner@barbershop-demo.it",
+  "timezone": "Europe/Rome",
+
+  "bookingRules": {
+    "minAdvanceHours": 1,
+    "minCancellationHours": 24,
+    "visibleDaysAhead": 30,
+    "staffChoiceEnabled": true,
+    "notificationMethod": "email"
+  },
+
+  "businessHours": [
+    { "dayOfWeek": 0, "isOpen": false },
+    { "dayOfWeek": 1, "isOpen": true, "openTime": "09:00", "closeTime": "19:00", "breakStart": "13:00", "breakEnd": "14:00" },
+    { "dayOfWeek": 2, "isOpen": true, "openTime": "09:00", "closeTime": "19:00", "breakStart": "13:00", "breakEnd": "14:00" },
+    { "dayOfWeek": 3, "isOpen": true, "openTime": "09:00", "closeTime": "19:00", "breakStart": "13:00", "breakEnd": "14:00" },
+    { "dayOfWeek": 4, "isOpen": true, "openTime": "09:00", "closeTime": "19:00", "breakStart": "13:00", "breakEnd": "14:00" },
+    { "dayOfWeek": 5, "isOpen": true, "openTime": "09:00", "closeTime": "19:00", "breakStart": "13:00", "breakEnd": "14:00" },
+    { "dayOfWeek": 6, "isOpen": true, "openTime": "09:00", "closeTime": "13:00" }
+  ],
+
+  "specialClosures": [
+    { "dateFrom": "2026-12-25", "dateTo": "2026-12-26", "reason": "Natale" },
+    { "dateFrom": "2026-08-10", "dateTo": "2026-08-20", "reason": "Ferie estive" }
+  ],
+
+  "services": [
+    {
+      "localId": "taglio-uomo",
+      "name": "Taglio Uomo",
+      "category": "Capelli",
+      "description": "Taglio classico con rifinitura",
+      "durationMinutes": 30,
+      "basePrice": 18.00,
+      "parallelSlots": 2,
+      "displayOrder": 1
+    },
+    {
+      "localId": "taglio-barba",
+      "name": "Taglio e Barba",
+      "category": "Capelli",
+      "description": "Taglio capelli con trattamento barba",
+      "durationMinutes": 45,
+      "basePrice": 25.00,
+      "parallelSlots": 2,
+      "displayOrder": 2,
+      "bufferEnabled": true,
+      "bufferMinutes": 15,
+      "bufferPosition": "After"
+    }
+  ],
+
+  "staff": [
+    {
+      "localId": "marco",
+      "name": "Marco Rossi",
+      "role": "Barbiere Senior",
+      "specialization": "Tagli classici e barba",
+      "photoUrl": null,
+      "displayOrder": 1,
+      "businessHours": [
+        { "dayOfWeek": 1, "isAvailable": true, "startTime": "09:00", "endTime": "19:00" },
+        { "dayOfWeek": 2, "isAvailable": true, "startTime": "09:00", "endTime": "19:00" },
+        { "dayOfWeek": 3, "isAvailable": false },
+        { "dayOfWeek": 4, "isAvailable": true, "startTime": "09:00", "endTime": "19:00" },
+        { "dayOfWeek": 5, "isAvailable": true, "startTime": "09:00", "endTime": "19:00" },
+        { "dayOfWeek": 6, "isAvailable": true, "startTime": "09:00", "endTime": "13:00" }
+      ],
+      "services": [
+        { "serviceLocalId": "taglio-uomo", "priceOverride": null },
+        { "serviceLocalId": "taglio-barba", "priceOverride": 28.00 }
+      ]
+    },
+    {
+      "localId": "luigi",
+      "name": "Luigi Verdi",
+      "role": "Barbiere",
+      "specialization": null,
+      "photoUrl": null,
+      "displayOrder": 2,
+      "businessHours": [],
+      "services": [
+        { "serviceLocalId": "taglio-uomo", "priceOverride": null }
+      ]
+    }
+  ]
+}
