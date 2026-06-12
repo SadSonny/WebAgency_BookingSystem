@@ -7,7 +7,7 @@
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**→ 2.1 Entità Core** (`Tenant`, `TenantApiKey`, `TenantBusinessHours`, `TenantSpecialClosure`).
+**→ 3.1 `BookingSystemDbContext`** con Global Query Filter su `tenant_id`.
 > Sessione autonoma in corso (senza Docker): si implementa V1 fino allo step 5.8 (endpoint pubblici), gate `dotnet build`.
 > Rinviato alla sessione con Docker: `dotnet ef database update`, run API, smoke-test (vedi `DOCKER_SESSION_TODO.md`).
 
@@ -32,15 +32,15 @@
 - [x] 1.5 NuGet packages aggiunti (Infra: `Npgsql.EntityFrameworkCore.PostgreSQL 10.0.2`, `Microsoft.EntityFrameworkCore.Design 10.0.9`; Api: stessi `Design` + `Serilog.AspNetCore`, `Serilog.Sinks.Console`, `FluentValidation 12.1.1` + DI ext). Core resta senza dipendenze esterne.
 
 ### 2. Core Layer (`WebAgency_BookingSystem.Core`)
-- [ ] 2.1 Entità: `Tenant`, `TenantApiKey`, `TenantBusinessHours`, `TenantSpecialClosure`
-- [ ] 2.2 Entità: `Service`, `Staff`, `StaffService`, `StaffBusinessHours`
-- [ ] 2.3 Entità: `Booking`, `AuditLog`, `User`
-- [ ] 2.4 `Result<T>` pattern + `Error` type
-- [ ] 2.5 Interfacce: `IAvailabilityService`, `IBookingService`, `IEmailService`
-- [ ] 2.6 Interfacce: `ITenantRepository`, `IServiceRepository`, `IStaffRepository`, `IBookingRepository`
-- [ ] 2.7 DTOs Request/Response per ogni endpoint pubblico
-- [ ] 2.8 DTOs Request/Response per ogni endpoint admin
-- [ ] 2.9 Enums: `BufferPosition`, `BookingStatus`, `UserRole`, `DayOfWeekIndex`
+- [x] 2.1 Entità: `Tenant`, `TenantApiKey`, `TenantBusinessHours`, `TenantSpecialClosure`
+- [x] 2.2 Entità: `Service`, `Staff`, `StaffService`, `StaffBusinessHours`
+- [x] 2.3 Entità: `Booking`, `AuditLog`, `User`
+- [x] 2.4 `Result<T>` pattern + `Error` type (+ `ErrorType` per mapping HTTP)
+- [x] 2.5 Interfacce: `IAvailabilityService`, `IBookingService`, `IEmailService` (+ `ITenantContext`)
+- [x] 2.6 Interfacce: `ITenantRepository`, `IServiceRepository`, `IStaffRepository`, `IBookingRepository`
+- [x] 2.7 DTOs Request/Response per ogni endpoint pubblico (+ `ErrorResponse`)
+- [ ] 2.8 DTOs Request/Response per ogni endpoint admin — **RINVIATO** con endpoint admin (6.x), fuori scope sessione corrente (evita dead code, vedi D-08)
+- [x] 2.9 Enums: `BufferPosition`, `BookingStatus`, `UserRole`, `DayOfWeekIndex`
 
 ### 3. Infrastructure Layer (`WebAgency_BookingSystem.Infrastructure`)
 - [ ] 3.1 `BookingSystemDbContext` con Global Query Filters per `tenant_id`
@@ -139,7 +139,10 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | Tabella | Modifica | Motivo |
 |---|---|---|
 | `services` | Aggiunti: `buffer_enabled BOOL`, `buffer_minutes INT`, `buffer_position VARCHAR(10)` | AD-03 |
-| `users` | Attivata (era "predisposizione futura"): `id`, `tenant_id`, `email`, `password_hash`, `role`, `created_at`, `is_active` | AD-02 |
+| `tenants` | **Rimosso** `buffer_minutes` | AD-03 (buffer è per-servizio, non per-tenant) |
+| `services` | Aggiunto `deleted_at TIMESTAMPTZ NULL` | Soft delete da convenzione (D-09) |
+| `staff` | Aggiunto `deleted_at TIMESTAMPTZ NULL` | Soft delete da convenzione (D-09) |
+| `users` | Attivata (era "predisposizione futura"): `id`, `tenant_id`, `email`, `password_hash`, `role`, `active`, `last_login_at`, `created_at`, `updated_at` | AD-02 |
 | `bookings` | `staff_id` confermato nullable | AD-04 |
 
 ---
@@ -152,3 +155,4 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-11 | Documentazione | CLAUDE.md e DEVELOPMENT_PLAN.md aggiornati con guida sessione AI, stato codebase, decisioni già prese |
 | 2026-06-11 | Feature | Step 1.0 completato: OpenAPI + Scalar.AspNetCore 2.16.3 — UI su `/scalar`, doc su `/openapi/v1.json` |
 | 2026-06-12 | Infra | Step 1.1–1.5 completati: docker-compose (Postgres 16 + pgAdmin), Dockerfile multi-stage, appsettings completi, `.env.example`, pacchetti NuGet (EF Core/Npgsql, Serilog, FluentValidation). Build verde. |
+| 2026-06-12 | Core | Step 2.1–2.7, 2.9 completati: 11 entità, enum, `Result<T>`/`Error`/`ErrorType`, DTO pubblici + `ErrorResponse`, interfacce repository/servizi + `ITenantContext`. Deviazioni schema: buffer per-servizio (AD-03), `deleted_at` su services/staff. Step 2.8 (DTO admin) rinviato con 6.x. Build Core verde. |
