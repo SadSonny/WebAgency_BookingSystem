@@ -1,0 +1,37 @@
+# [INTENT]: Esclude dal build context Docker tutto ciò che non serve alla pubblicazione dell'immagine.
+# Riduce dimensione/durata del build e impedisce di copiare artefatti locali o segreti nell'immagine.
+
+# Output di build (ricostruiti dentro l'immagine)
+**/bin/
+**/obj/
+
+# Git e metadati
+.git/
+.gitignore
+.gitattributes
+
+# IDE / editor
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+
+# Claude Code (locale, non per l'immagine)
+.claude/
+
+# Segreti e ambiente locale
+.env
+.env.*
+!.env.example
+
+# Test (non necessari alla pubblicazione dell'API)
+tests/
+
+# Documentazione / pianificazione
+*.md
+Claude_Instructions/
+
+# Log e temporanei
+logs/
+*.log

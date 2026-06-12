@@ -15,6 +15,15 @@ using WebAgency_BookingSystem.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ── Porta runtime (Railway / PaaS) ────────────────────────────────────────────
+// WHY: Railway inietta la porta via $PORT a runtime. La leggiamo qui per far ascoltare Kestrel sulla porta
+// assegnata; senza PORT (sviluppo locale / docker run) resta il default dell'immagine (8080).
+string? port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(port))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+
 // ── Serilog (4.4) ───────────────────────────────────────────────────────────
 // WHY: logging strutturato su Console (Railway cattura stdout). La request logging di Serilog non logga
 // l'IP del cliente di default → GDPR-safe. Livelli e override letti da appsettings (sezione Serilog).

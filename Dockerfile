@@ -1,6 +1,6 @@
 # [INTENT]: Build multi-stage per WebAgency_BookingSystem.Api, ottimizzato per deploy su Railway (EU West).
 # Stage `build` ripristina e pubblica; stage `final` contiene solo il runtime ASP.NET + i binari pubblicati
-# (immagine finale minima, senza SDK). Railway inietta la porta via $PORT — Kestrel la legge a runtime.
+# (immagine finale minima, senza SDK). La porta è letta da $PORT a runtime in Program.cs (non bakata qui).
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -21,9 +21,12 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 
-# WHY: Railway non garantisce una porta fissa; ASPNETCORE_URLS con $PORT fa ascoltare Kestrel
-# sulla porta assegnata. In locale (docker run senza PORT) si usa il default 8080.
-ENV ASPNETCORE_URLS=http://+:${PORT:-8080}
+# WHY: la porta è gestita a runtime da Program.cs leggendo $PORT (iniettata da Railway). NON la bakiamo qui:
+# `ENV ASPNETCORE_URLS=...:${PORT}` verrebbe valutata a build time (PORT assente) e l'app non ascolterebbe
+# sulla porta runtime. L'immagine aspnet espone 8080 di default; in locale senza PORT Kestrel ascolta lì.
 EXPOSE 8080
+
+# WHY: esecuzione come utente non-root fornito dall'immagine (riduce la superficie in caso di compromissione).
+USER app
 
 ENTRYPOINT ["dotnet", "WebAgency_BookingSystem.Api.dll"]
