@@ -41,8 +41,10 @@ public class BookingServiceTests
 
     private static Harness CreateSut()
     {
+        var tenant = new Tenant { Id = TenantId, Name = "Salone", Timezone = "Europe/Rome", MinCancellationHours = 24 };
         var tenantContext = Substitute.For<ITenantContext>();
         tenantContext.TenantId.Returns(TenantId);
+        tenantContext.Tenant.Returns(tenant);
 
         DbContextOptions<BookingSystemDbContext> options = new DbContextOptionsBuilder<BookingSystemDbContext>()
             .UseInMemoryDatabase($"booking-tests-{Guid.NewGuid()}")
@@ -50,9 +52,6 @@ public class BookingServiceTests
         var db = new BookingSystemDbContext(options, tenantContext);
 
         var tenants = Substitute.For<ITenantRepository>();
-        tenants.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns(new Tenant { Id = TenantId, Name = "Salone", Timezone = "Europe/Rome", MinCancellationHours = 24 });
-
         var services = Substitute.For<IServiceRepository>();
         var staff = Substitute.For<IStaffRepository>();
         var bookings = Substitute.For<IBookingRepository>();

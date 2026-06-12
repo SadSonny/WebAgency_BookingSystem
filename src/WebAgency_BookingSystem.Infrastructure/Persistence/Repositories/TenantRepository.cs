@@ -15,9 +15,6 @@ internal sealed class TenantRepository : ITenantRepository
 
     public TenantRepository(BookingSystemDbContext db) => _db = db;
 
-    public Task<Tenant?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
-        _db.Tenants.FirstOrDefaultAsync(t => t.Id == id, ct);
-
     public async Task<Tenant?> ResolveActiveByApiKeyHashAsync(string keyHash, CancellationToken ct = default)
     {
         // WHY: il tenant non è ancora noto, quindi il query filter (TenantId == context.TenantId, null qui)

@@ -1,9 +1,9 @@
-// [INTENT]: Implementazione scoped di ITenantContext: un semplice contenitore del tenant corrente,
-// valorizzato una sola volta dal TenantResolutionMiddleware all'inizio della richiesta e poi letto dal
-// DbContext per il global query filter. È volutamente mutabile-una-volta per impedire cambi di tenant
-// a metà richiesta.
+// [INTENT]: Implementazione scoped di ITenantContext: contenitore del tenant corrente, valorizzato una sola
+// volta dal TenantResolutionMiddleware all'inizio della richiesta e poi letto dal DbContext (query filter) e
+// dai servizi (regole del tenant). Mutabile-una-volta per impedire cambi di tenant a metà richiesta.
 
 using WebAgency_BookingSystem.Core.Abstractions;
+using WebAgency_BookingSystem.Core.Entities;
 
 namespace WebAgency_BookingSystem.Infrastructure.Tenancy;
 
@@ -11,13 +11,16 @@ namespace WebAgency_BookingSystem.Infrastructure.Tenancy;
 public sealed class TenantContext : ITenantContext
 {
     /// <inheritdoc />
-    public Guid? TenantId { get; private set; }
+    public Tenant? Tenant { get; private set; }
 
     /// <inheritdoc />
-    public bool IsResolved => TenantId.HasValue;
+    public Guid? TenantId => Tenant?.Id;
 
     /// <inheritdoc />
-    public void SetTenant(Guid tenantId)
+    public bool IsResolved => Tenant is not null;
+
+    /// <inheritdoc />
+    public void SetTenant(Tenant tenant)
     {
         // WHY: il tenant è immutabile per la durata della richiesta. Un secondo SetTenant indicherebbe
         // un bug nella pipeline (doppia risoluzione), non un caso atteso: quindi eccezione.
@@ -26,6 +29,6 @@ public sealed class TenantContext : ITenantContext
             throw new InvalidOperationException("Il tenant è già stato risolto per la richiesta corrente.");
         }
 
-        TenantId = tenantId;
+        Tenant = tenant;
     }
 }

@@ -59,8 +59,7 @@ public sealed class TenantResolutionMiddleware
             return;
         }
 
-        tenantContext.SetTenant(tenant.Id);
-        context.Items[HttpContextExtensions.TenantItemKey] = tenant;
+        tenantContext.SetTenant(tenant);
 
         // WHY: da qui in poi tutti i log della richiesta portano il TenantId, per correlare le operazioni
         // a un tenant specifico senza doverlo passare manualmente a ogni log.

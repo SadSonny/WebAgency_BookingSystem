@@ -3,6 +3,7 @@
 // validazione lato client. Il tenant è già risolto dal middleware. bufferMinutes è 0 (buffer per-servizio, AD-03).
 
 using WebAgency_BookingSystem.Api.Http;
+using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Dtos;
 using WebAgency_BookingSystem.Core.Dtos.Public;
@@ -15,9 +16,10 @@ internal static class TenantConfigEndpoints
 {
     public static IEndpointRouteBuilder MapTenantConfigEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/v1/tenant/config", async (HttpContext http, ITenantRepository tenants, CancellationToken ct) =>
+        app.MapGet("/api/v1/tenant/config", async (ITenantContext tenantContext, ITenantRepository tenants, CancellationToken ct) =>
         {
-            Tenant tenant = http.CurrentTenant();
+            // Il tenant è già risolto e caricato dal middleware (rotta tenant-scoped).
+            Tenant tenant = tenantContext.Tenant!;
             IReadOnlyList<TenantBusinessHours> hours = await tenants.GetBusinessHoursAsync(tenant.Id, ct);
             IReadOnlyList<TenantSpecialClosure> closures = await tenants.GetActiveSpecialClosuresAsync(
                 tenant.Id, DateOnly.FromDateTime(DateTime.UtcNow), ct);

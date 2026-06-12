@@ -11,9 +11,6 @@ namespace WebAgency_BookingSystem.Core.Abstractions.Repositories;
 /// </summary>
 public interface ITenantRepository
 {
-    /// <summary>Restituisce il tenant per Id, oppure null se inesistente.</summary>
-    Task<Tenant?> GetByIdAsync(Guid id, CancellationToken ct = default);
-
     /// <summary>
     /// Risolve un tenant ATTIVO a partire dall'hash SHA-256 di un'API key, considerando solo chiavi
     /// attive. Restituisce null se la chiave non esiste, è revocata, o il tenant è disattivato.

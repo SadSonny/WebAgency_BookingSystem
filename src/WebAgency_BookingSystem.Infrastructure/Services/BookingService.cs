@@ -86,8 +86,9 @@ internal sealed class BookingService : IBookingService
             }
         }
 
-        Guid tenantId = _tenantContext.TenantId!.Value;
-        Tenant tenant = (await _tenants.GetByIdAsync(tenantId, ct))!;
+        // Tenant già caricato dal middleware (R-21).
+        Tenant tenant = _tenantContext.Tenant!;
+        Guid tenantId = tenant.Id;
         DateTime tenantNow = TenantTime.Now(tenant.Timezone);
 
         long lockKey = ComputeLockKey(tenantId, request.ServiceId, date, time);
@@ -181,7 +182,7 @@ internal sealed class BookingService : IBookingService
             return NeutralNotFound<BookingDetailResponse>();
         }
 
-        Tenant tenant = (await _tenants.GetByIdAsync(_tenantContext.TenantId!.Value, ct))!;
+        Tenant tenant = _tenantContext.Tenant!;
         DateTime tenantNow = TenantTime.Now(tenant.Timezone);
         DateTime bookingMoment = booking.BookingDate.ToDateTime(booking.BookingTime);
         DateTime deadline = bookingMoment.AddHours(-tenant.MinCancellationHours);
@@ -216,7 +217,7 @@ internal sealed class BookingService : IBookingService
             return Error.Validation("booking_not_cancellable", "La prenotazione non è in uno stato disdicibile.");
         }
 
-        Tenant tenant = (await _tenants.GetByIdAsync(_tenantContext.TenantId!.Value, ct))!;
+        Tenant tenant = _tenantContext.Tenant!;
         DateTime tenantNow = TenantTime.Now(tenant.Timezone);
         DateTime deadline = booking.BookingDate.ToDateTime(booking.BookingTime).AddHours(-tenant.MinCancellationHours);
 

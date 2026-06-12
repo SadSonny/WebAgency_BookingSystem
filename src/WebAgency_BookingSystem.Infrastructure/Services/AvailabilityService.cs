@@ -77,8 +77,9 @@ internal sealed class AvailabilityService : IAvailabilityService
             }
         }
 
-        Guid tenantId = _tenantContext.TenantId!.Value;
-        Tenant tenant = (await _tenants.GetByIdAsync(tenantId, ct))!;
+        // Tenant già caricato dal middleware: nessuna query ridondante (R-21).
+        Tenant tenant = _tenantContext.Tenant!;
+        Guid tenantId = tenant.Id;
 
         // Caricamento dati una sola volta per l'intero range.
         IReadOnlyList<TenantBusinessHours> businessHours = await _tenants.GetBusinessHoursAsync(tenantId, ct);
