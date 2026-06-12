@@ -11,6 +11,7 @@ using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Repositories;
+using WebAgency_BookingSystem.Infrastructure.Services;
 using WebAgency_BookingSystem.Infrastructure.Tenancy;
 
 namespace WebAgency_BookingSystem.Infrastructure;
@@ -40,6 +41,9 @@ public static class DependencyInjection
         services.AddScoped<IServiceRepository, ServiceRepository>();
         services.AddScoped<IStaffRepository, StaffRepository>();
         services.AddScoped<IBookingRepository, BookingRepository>();
+
+        services.AddScoped<IAvailabilityService, AvailabilityService>();
+        services.AddScoped<IBookingService, BookingService>();
 
         // V1: email no-op (AD-06). In V2 sostituire con l'implementazione Brevo.
         services.AddScoped<IEmailService, EmailServiceStub>();
