@@ -50,4 +50,22 @@
 ---
 
 ## Dubbi emersi durante l'implementazione
-> (vuoto all'avvio — popolato man mano)
+
+### D-06 — Header API key: `X-Api-Key` vs `X-API-Key` 🟡
+**Contesto:** `03-spec-endpoint.md` usa `X-API-Key`; CLAUDE.md (sommario endpoint + descrizione OpenAPI step 1.0) usa `X-Api-Key`.
+**Default adottato:** `X-Api-Key` (CLAUDE.md prevale sulle spec, come da regola di precedenza).
+**Da confermare:** il frontend esistente quale header invia esattamente? Gli header HTTP sono case-insensitive lato server, quindi a runtime non cambia nulla; conta solo per la doc.
+
+### D-07 — `tenant/config.bufferMinutes` con buffer per-servizio 🟡
+**Contesto:** la response di `GET /tenant/config` include `bufferMinutes` a livello tenant (spec 03), ma per AD-03 il buffer è stato spostato sul singolo servizio e rimosso da `Tenant`.
+**Default adottato:** mantengo il campo `bufferMinutes` nella response (forma del contratto invariata per il frontend) ma valorizzato sempre a `0`. Il buffer effettivo è esposto/usato a livello servizio.
+**Da confermare:** il frontend usa `tenant/config.bufferMinutes`? Se sì, va deciso se rimuoverlo o derivarlo.
+
+### D-08 — DTO admin (step 2.8) rinviati 🟢
+**Contesto:** lo scope concordato è 1.1→5.8 (endpoint pubblici). I DTO admin servono agli endpoint admin (6.x), fuori scope.
+**Decisione:** step 2.8 NON implementato in questa sessione per non introdurre dead code (CLAUDE.md vieta implementazioni parziali/non usate). Sarà fatto insieme agli endpoint admin (6.x). Step 2.8 resta `[ ]` nel piano con nota.
+
+### D-09 — Soft delete via `DeletedAt` su services/staff 🟡
+**Contesto:** lo schema SQL (02) non mostra `deleted_at` su `services`/`staff`, ma CLAUDE.md (convenzioni) e `01-architettura` indicano soft delete tramite `deleted_at`.
+**Default adottato:** aggiunto `DeletedAt TIMESTAMPTZ NULL` a `Service` e `Staff`; il global query filter escluderà i record soft-deleted. Deviazione di schema annotata nel piano.
+**Da confermare:** ok aggiungere `deleted_at` oltre al flag `active` esistente?
