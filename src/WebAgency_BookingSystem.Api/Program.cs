@@ -3,17 +3,24 @@
 // routing degli endpoint pubblici. L'ordine dei middleware è significativo ed è documentato inline.
 
 using System.Reflection;
+using System.Security.Claims;
+using System.Text;
 using System.Threading.RateLimiting;
 using FluentValidation;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Context;
 using WebAgency_BookingSystem.Api.Endpoints;
+using WebAgency_BookingSystem.Api.Endpoints.Admin;
 using WebAgency_BookingSystem.Api.Http;
 using WebAgency_BookingSystem.Api.Middleware;
 using WebAgency_BookingSystem.Infrastructure;
+using WebAgency_BookingSystem.Infrastructure.Auth;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -104,8 +111,43 @@ builder.Services.AddCors(options =>
     });
 });
 
+// ── Autenticazione admin (JWT Bearer) ─────────────────────────────────────────
+// WHY: gli endpoint /admin sono protetti da JWT (AD-08). Il segreto/issuer/audience sono condivisi con il
+// generatore (Infrastructure) tramite JwtSettings, così firma e validazione restano coerenti. Le risposte
+// 401/403 sono riscritte nell'envelope d'errore del contratto.
+JwtSettings jwtSettings = JwtSettings.FromConfiguration(builder.Configuration);
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtSettings.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtSettings.Audience,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Secret)),
+            RoleClaimType = ClaimTypes.Role,
+            NameClaimType = JwtRegisteredClaimNames.Sub,
+            ClockSkew = TimeSpan.FromSeconds(30),
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnChallenge = async context =>
+            {
+                context.HandleResponse();
+                await HttpErrorWriter.WriteAsync(context.HttpContext, StatusCodes.Status401Unauthorized,
+                    "unauthorized", "Autenticazione richiesta o token non valido.", context.HttpContext.RequestAborted);
+            },
+            OnForbidden = context => HttpErrorWriter.WriteAsync(context.HttpContext, StatusCodes.Status403Forbidden,
+                "forbidden", "Accesso non consentito.", context.HttpContext.RequestAborted),
+        };
+    });
+builder.Services.AddAuthorization();
+
 // ── Validazione (FluentValidation) ────────────────────────────────────────────
-// I validator degli endpoint pubblici (es. CreateBookingRequest) vivono in questo assembly.
+// I validator degli endpoint pubblici e admin vivono in questo assembly.
 builder.Services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
 
 // ── Rate limiting (4.2 / R-14) ────────────────────────────────────────────────
@@ -219,10 +261,16 @@ app.UseCors(CorsPolicies.Frontend);
 //    per-endpoint (RequireRateLimiting) restano applicate perché l'endpoint è già noto dopo il routing.
 app.UseRateLimiter();
 
-// 6. Risoluzione tenant da X-Api-Key (popola ITenantContext per le rotte pubbliche tenant-scoped).
-app.UseMiddleware<TenantResolutionMiddleware>();
+// 6. Autenticazione/autorizzazione JWT (rotte admin).
+app.UseAuthentication();
+app.UseAuthorization();
 
-// ── Endpoint pubblici (5.1-5.8) ───────────────────────────────────────────────
-app.MapPublicEndpoints();
+// 7. Risoluzione tenant: da X-Api-Key per le rotte pubbliche, dal JWT per le rotte admin.
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseMiddleware<AdminContextMiddleware>();
+
+// ── Endpoint ──────────────────────────────────────────────────────────────────
+app.MapPublicEndpoints();   // 5.1-5.8 (API key)
+app.MapAdminEndpoints();    // 6.x (JWT)
 
 app.Run();

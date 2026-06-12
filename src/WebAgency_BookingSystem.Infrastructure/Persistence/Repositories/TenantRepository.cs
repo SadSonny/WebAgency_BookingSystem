@@ -55,6 +55,12 @@ internal sealed class TenantRepository : ITenantRepository
         return tenant;
     }
 
+    public Task<Tenant?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
+        _db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, ct);
+
+    public Task<Tenant?> GetBySlugAsync(string slug, CancellationToken ct = default) =>
+        _db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Slug == slug, ct);
+
     public Task<IReadOnlyList<TenantBusinessHours>> GetBusinessHoursAsync(Guid tenantId, CancellationToken ct = default) =>
         _tenantCache.GetOrCreateAsync<IReadOnlyList<TenantBusinessHours>>(
             tenantId, "business-hours", TenantDataTtl,

@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
+using WebAgency_BookingSystem.Infrastructure.Auth;
 using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Caching;
@@ -52,6 +53,11 @@ public static class DependencyInjection
         services.AddScoped<IServiceRepository, ServiceRepository>();
         services.AddScoped<IStaffRepository, StaffRepository>();
         services.AddScoped<IBookingRepository, BookingRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();
+
+        // Admin auth (6.x): generazione/validazione JWT, login.
+        services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
+        services.AddScoped<IAdminAuthService, AdminAuthService>();
 
         services.AddScoped<IAvailabilityService, AvailabilityService>();
         services.AddScoped<IBookingService, BookingService>();

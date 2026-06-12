@@ -17,6 +17,12 @@ public interface ITenantRepository
     /// </summary>
     Task<Tenant?> ResolveActiveByApiKeyHashAsync(string keyHash, CancellationToken ct = default);
 
+    /// <summary>Restituisce il tenant per Id (usato dal contesto admin per popolare il tenant dal JWT).</summary>
+    Task<Tenant?> GetByIdAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Restituisce il tenant per slug (usato dal login admin per identificare l'attività).</summary>
+    Task<Tenant?> GetBySlugAsync(string slug, CancellationToken ct = default);
+
     /// <summary>Restituisce gli orari settimanali del tenant (una riga per giorno presente).</summary>
     Task<IReadOnlyList<TenantBusinessHours>> GetBusinessHoursAsync(Guid tenantId, CancellationToken ct = default);
 
