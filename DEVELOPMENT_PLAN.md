@@ -111,8 +111,8 @@ Poi proseguire con la **Sezione 6 (Admin API)** e **7 (CLI provisioning)**, quin
 - [ ] 8.5 Collegamento fire-and-forget post-commit nei servizi booking
 
 ### 9. Test Suite
-- [~] 9.1 Unit: disponibilità — **`AvailabilityCalculator` (cuore puro) coperto: 23 test verdi** (granularità, bordi chiusura, pausa, anticipo/passato, capienza parallelSlots/staff, buffer D-10, `IsSlotAvailable`). Resta da fare l'`AvailabilityService` con repository mockati (NSubstitute) per i casi chiusura/staff-hours.
-- [ ] 9.2 Unit: `BookingService` — race condition, cancellation logic
+- [x] 9.1 Unit: disponibilità — **`AvailabilityCalculator` (23 test) + `HoursResolver` (9 test)** verdi. Coprono granularità, bordi chiusura, pausa, anticipo/passato, capienza parallelSlots/staff, buffer (D-10), `IsSlotAvailable`, chiusure, giorno chiuso, precedenza orari staff/tenant.
+- [~] 9.2 Unit: `BookingService` — **consultazione e disdetta coperte (9 test)**: 404 neutro, stato non disdicibile (422), preavviso (403), canCancel, audit+email. La **creazione** (`CreateAsync`, advisory lock/transazione/SQL raw) resta per l'**integration** con Docker (9.4/9.5).
 - [ ] 9.3 Unit: `TenantResolutionMiddleware`
 - [ ] 9.4 Integration: `POST /api/v1/bookings` — 5 casi (da spec)
 - [ ] 9.5 Integration: advisory lock (prenotazione doppia concorrente)
@@ -164,3 +164,5 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-12 | Endpoint | Step 5.1–5.8 completati: health, tenant/config, services, staff, availability (`AvailabilityCalculator` puro + `AvailabilityService`), bookings POST/GET/DELETE (`BookingService` con advisory lock). FluentValidation, metadati OpenAPI su tutti gli endpoint. Build solution verde. **V1 endpoint pubblici completi.** Validazione runtime rinviata a `DOCKER_SESSION_TODO.md`. |
 | 2026-06-12 | Review | Prodotto `CODE_REVIEW_FINDINGS.md`: review statica critica, 33 rilievi P0–P3 (logging, CORS, deploy/proxy, sicurezza, concorrenza, performance, test). |
 | 2026-06-12 | Test | Step 9.1 (parziale): suite unit `AvailabilityCalculatorTests` — 23 test verdi sul cuore puro dell'algoritmo, senza Docker. Rimosso placeholder `UnitTest1.cs`. |
+| 2026-06-12 | Refactor+Test | `HoursResolver` spostato in `Core.Availability` (logica pura) + 9 unit test. Step 9.1 completato. |
+| 2026-06-12 | Test | Step 9.2 (parziale): `BookingServiceTests` — 9 test su consultazione/disdetta (NSubstitute + EF InMemory). `CreateAsync` rinviato a integration (Docker). Suite totale: **41 test verdi**. |
