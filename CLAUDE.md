@@ -2,14 +2,16 @@
 
 ## Stato Corrente del Progetto
 
-> **CODEBASE NON ANCORA IMPLEMENTATO.**
-> Tutti i progetti `.csproj` esistono ma contengono solo file placeholder (`Class1.cs`, `Program.cs` vuoti).
-> Nessuna logica di dominio, nessuna migrazione, nessun endpoint è stato scritto.
-> Il piano completo è definito in `DEVELOPMENT_PLAN.md`.
+> **V1 — ENDPOINT PUBBLICI IMPLEMENTATI (Blocchi 1→5).**
+> Infra (docker-compose, Dockerfile, settings), Core (entità, `Result<T>`, DTO, interfacce, enum),
+> Infrastructure (DbContext + global query filter, config EF, **migrazione `InitialSchema` generata, non applicata**,
+> repository, email stub), middleware (tenant resolution, rate limiting, error handling, Serilog) ed
+> endpoint pubblici 5.1–5.8 (health, config, services, staff, availability, bookings) sono implementati.
+> Build `dotnet build` verde sui progetti in scope.
 
-**Fase attuale:** Pianificazione completata — in attesa di consenso utente per avviare l'implementazione.
+**Fase attuale:** V1 endpoint pubblici completata in sessione autonoma (2026-06-12, senza Docker).
 
-**Prossimo task:** Step 1.1 — `docker-compose.yml` (vedi `DEVELOPMENT_PLAN.md`).
+**Prossimo task:** Sessione con Docker — applicare migrazione e validare a runtime (`DOCKER_SESSION_TODO.md`); poi Sezione 6 (Admin API) e 7 (CLI provisioning). Dubbi aperti in `DUBBI_SESSIONE.md`.
 
 ---
 

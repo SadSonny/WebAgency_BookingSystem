@@ -1,15 +1,18 @@
 # Development Plan — WebAgency BookingSystem
 
-## Stato: IN PIANIFICAZIONE — CODEBASE VUOTO
+## Stato: V1 ENDPOINT PUBBLICI IMPLEMENTATI (Blocchi 1→5)
 
-> Nessun codice implementato. Tutti i task sono `[ ]`.
-> L'implementazione inizia dallo step **1.1** non appena l'utente dà consenso esplicito.
+> Implementati i blocchi 1→5 (infra, Core, Infrastructure, middleware, endpoint pubblici 5.1–5.8).
+> Build `dotnet build` verde su tutti i progetti in scope. Migrazione `InitialSchema` **generata, non applicata**.
+> Mancano alla V1: Sezione 6 (Admin API), Sezione 7 (CLI provisioning). Poi V2 (email Brevo, test).
+> Validazione a runtime (apply migrazione, smoke-test) rinviata: vedi `DOCKER_SESSION_TODO.md`.
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**→ 5.1 `GET /api/v1/health`** e a seguire gli altri endpoint pubblici (5.2-5.8).
-> Sessione autonoma in corso (senza Docker): si implementa V1 fino allo step 5.8 (endpoint pubblici), gate `dotnet build`.
-> Rinviato alla sessione con Docker: `dotnet ef database update`, run API, smoke-test (vedi `DOCKER_SESSION_TODO.md`).
+**→ Sessione con Docker**: applicare la migrazione e validare a runtime (vedi `DOCKER_SESSION_TODO.md`).
+Poi proseguire con la **Sezione 6 (Admin API)** e **7 (CLI provisioning)**, quindi V2 (email, test).
+> Sessione autonoma del 2026-06-12 (senza Docker): implementati i blocchi 1→5 (V1 fino agli endpoint pubblici). Gate `dotnet build` verde su tutti i progetti in scope.
+> Fuori scope concordato di questa sessione: 2.8 (DTO admin), Sezione 6 (Admin), Sezione 7 (CLI), Sezione 9 (test).
 
 ### Come aggiornare questo file
 - Spunta `[x]` il task completato immediatamente dopo averlo finito e verificato con `dotnet build`.
@@ -60,14 +63,14 @@
 - [x] 4.5 Program.cs con DI completo, middleware pipeline, routing (endpoint mapping attivato in 5.x)
 
 ### 5. Endpoint Pubblici
-- [ ] 5.1 `GET /api/v1/health` (no auth)
-- [ ] 5.2 `GET /api/v1/tenant/config`
-- [ ] 5.3 `GET /api/v1/services`
-- [ ] 5.4 `GET /api/v1/staff` (con filtro `?serviceId=`)
-- [ ] 5.5 `GET /api/v1/availability` (algoritmo completo, granularità 15 min)
-- [ ] 5.6 `POST /api/v1/bookings` (con `pg_try_advisory_xact_lock`)
-- [ ] 5.7 `GET /api/v1/bookings/{id}?token=...`
-- [ ] 5.8 `DELETE /api/v1/bookings/{id}?token=...`
+- [x] 5.1 `GET /api/v1/health` (no auth) — verifica raggiungibilità DB (200/503)
+- [x] 5.2 `GET /api/v1/tenant/config` — 7 giorni, chiusure future, bufferMinutes=0
+- [x] 5.3 `GET /api/v1/services` — con `staffIds`
+- [x] 5.4 `GET /api/v1/staff` (con filtro `?serviceId=`)
+- [x] 5.5 `GET /api/v1/availability` (algoritmo completo, granularità 15 min) — `AvailabilityCalculator` puro
+- [x] 5.6 `POST /api/v1/bookings` (con `pg_try_advisory_xact_lock` + retry) — FluentValidation 422
+- [x] 5.7 `GET /api/v1/bookings/{id}?token=...` — 404 neutro
+- [x] 5.8 `DELETE /api/v1/bookings/{id}?token=...` — 403 oltre preavviso
 
 ### 6. Admin API
 - [ ] 6.1 `POST /api/v1/admin/auth/token` (email + password → JWT)
@@ -158,3 +161,4 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-12 | Core | Step 2.1–2.7, 2.9 completati: 11 entità, enum, `Result<T>`/`Error`/`ErrorType`, DTO pubblici + `ErrorResponse`, interfacce repository/servizi + `ITenantContext`. Deviazioni schema: buffer per-servizio (AD-03), `deleted_at` su services/staff. Step 2.8 (DTO admin) rinviato con 6.x. Build Core verde. |
 | 2026-06-12 | Infra | Step 3.1–3.8 completati: DbContext + global query filter, 11 config Fluent API (snake_case via EFCore.NamingConventions), migrazione `InitialSchema` **generata** con factory design-time (no Docker), 4 repository, `EmailServiceStub`, DI `AddInfrastructure`. Build verde. |
 | 2026-06-12 | Middleware | Step 4.1–4.5 completati: `TenantResolutionMiddleware` (X-Api-Key→tenant, 401/403), rate limiting sliding window per API key, error handling middleware + mapping Result→HTTP, Serilog Console, helper Core `ApiKeyHasher`/`IpAnonymizer`, Program.cs pipeline. Build verde. |
+| 2026-06-12 | Endpoint | Step 5.1–5.8 completati: health, tenant/config, services, staff, availability (`AvailabilityCalculator` puro + `AvailabilityService`), bookings POST/GET/DELETE (`BookingService` con advisory lock). FluentValidation, metadati OpenAPI su tutti gli endpoint. Build solution verde. **V1 endpoint pubblici completi.** Validazione runtime rinviata a `DOCKER_SESSION_TODO.md`. |
