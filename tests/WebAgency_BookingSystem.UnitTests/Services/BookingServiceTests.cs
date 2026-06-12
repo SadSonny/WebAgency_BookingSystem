@@ -7,6 +7,7 @@
 // Dipendenze mockate con NSubstitute; il DbContext è EF InMemory (usato solo da CancelAsync per l'audit).
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
@@ -57,7 +58,8 @@ public class BookingServiceTests
         var bookings = Substitute.For<IBookingRepository>();
         var email = Substitute.For<IEmailService>();
 
-        var sut = new BookingService(db, tenantContext, tenants, services, staff, bookings, email);
+        var sut = new BookingService(db, tenantContext, tenants, services, staff, bookings, email,
+            NullLogger<BookingService>.Instance);
         return new Harness(sut, db, bookings, email);
     }
 

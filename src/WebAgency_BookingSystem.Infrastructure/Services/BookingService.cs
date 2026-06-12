@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
@@ -30,6 +31,7 @@ internal sealed class BookingService : IBookingService
     private readonly IStaffRepository _staff;
     private readonly IBookingRepository _bookings;
     private readonly IEmailService _email;
+    private readonly ILogger<BookingService> _logger;
 
     public BookingService(
         BookingSystemDbContext db,
@@ -38,7 +40,8 @@ internal sealed class BookingService : IBookingService
         IServiceRepository services,
         IStaffRepository staff,
         IBookingRepository bookings,
-        IEmailService email)
+        IEmailService email,
+        ILogger<BookingService> logger)
     {
         _db = db;
         _tenantContext = tenantContext;
@@ -47,6 +50,7 @@ internal sealed class BookingService : IBookingService
         _staff = staff;
         _bookings = bookings;
         _email = email;
+        _logger = logger;
     }
 
     public async Task<Result<CreateBookingResponse>> CreateAsync(
@@ -98,6 +102,12 @@ internal sealed class BookingService : IBookingService
             await Task.Delay(LockRetryDelayMs, ct);
             if (!await TryAcquireSlotLockAsync(lockKey, ct))
             {
+                // WHY (R-04): distinguiamo questo 409 (CONTESA: un'altra transazione tiene il lock sullo
+                // stesso slot) dal 409 di capacità esaurita più sotto. Il client vede lo stesso codice, ma
+                // i log permettono di capire se è concorrenza o slot realmente pieno.
+                _logger.LogWarning(
+                    "Prenotazione in conflitto: advisory lock non acquisito (slot conteso) per service {ServiceId} il {Date} alle {Time}",
+                    request.ServiceId, date, time);
                 return Error.Conflict("slot_unavailable",
                     "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova.");
             }
@@ -148,6 +158,10 @@ internal sealed class BookingService : IBookingService
 
         await _db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+
+        _logger.LogInformation(
+            "Prenotazione creata {BookingId} per service {ServiceId} staff {StaffId} il {Date} alle {Time}",
+            booking.Id, request.ServiceId, request.StaffId, date, time);
 
         // Post-commit: in V1 l'email è no-op (istantanea). In V2 (Brevo) valutare invio fire-and-forget.
         await _email.SendBookingConfirmationAsync(booking, ct);
@@ -230,6 +244,8 @@ internal sealed class BookingService : IBookingService
 
         await _db.SaveChangesAsync(ct);
 
+        _logger.LogInformation("Prenotazione {BookingId} disdetta dal cliente", booking.Id);
+
         await _email.SendCancellationConfirmationAsync(booking, ct);
 
         return Result.Success(new CancelBookingResponse(booking.Id, booking.Status.ToApiString(), "Prenotazione disdetta con successo."));
@@ -280,6 +296,11 @@ internal sealed class BookingService : IBookingService
 
         if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, staffId, slots))
         {
+            // WHY (R-04): qui lo slot è realmente PIENO/non valido alla ri-verifica sotto lock (capacità
+            // esaurita o regola oraria), distinto dalla contesa di lock loggata in CreateAsync.
+            _logger.LogInformation(
+                "Prenotazione rifiutata: slot non disponibile alla ri-verifica per service {ServiceId} il {Date} alle {Time}",
+                service.Id, date, time);
             return Error.Conflict("slot_unavailable",
                 "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova.");
         }

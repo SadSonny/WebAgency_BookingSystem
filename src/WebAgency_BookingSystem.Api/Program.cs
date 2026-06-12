@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 using Serilog;
+using Serilog.Context;
 using WebAgency_BookingSystem.Api.Endpoints;
 using WebAgency_BookingSystem.Api.Http;
 using WebAgency_BookingSystem.Api.Middleware;
@@ -144,6 +145,17 @@ var app = builder.Build();
 // ── Pipeline middleware (ordine significativo) ────────────────────────────────
 // 0. Forwarded headers: per primo, così tutto il resto vede IP/scheme reali del client (dietro proxy).
 app.UseForwardedHeaders();
+
+// 0.5 Correlazione (R-02): espone X-Trace-Id nella response (il client/supporto può comunicarlo) e propaga
+//     RequestId a tutti i log della richiesta via LogContext, così ogni riga di log è correlabile.
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Trace-Id"] = context.TraceIdentifier;
+    using (LogContext.PushProperty("RequestId", context.TraceIdentifier))
+    {
+        await next();
+    }
+});
 
 // 1. Error handling: rete di sicurezza più esterna, cattura tutto ciò che sta sotto.
 app.UseMiddleware<ErrorHandlingMiddleware>();

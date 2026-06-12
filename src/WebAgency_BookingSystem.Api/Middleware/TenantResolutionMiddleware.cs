@@ -2,6 +2,7 @@
 // HttpContext.Items), prerequisito per tutti gli endpoint tenant-scoped. 401 se la chiave manca, 403 se non
 // è valida o il tenant è disattivato. Esclude /health (no auth) e /admin (JWT futuro) e le rotte non /api/v1.
 
+using Serilog.Context;
 using WebAgency_BookingSystem.Api.Http;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
@@ -17,8 +18,13 @@ public sealed class TenantResolutionMiddleware
 {
     private const string ApiKeyHeader = "X-Api-Key";
     private readonly RequestDelegate _next;
+    private readonly ILogger<TenantResolutionMiddleware> _logger;
 
-    public TenantResolutionMiddleware(RequestDelegate next) => _next = next;
+    public TenantResolutionMiddleware(RequestDelegate next, ILogger<TenantResolutionMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
 
     public async Task InvokeAsync(HttpContext context, ITenantContext tenantContext, ITenantRepository tenantRepository)
     {
@@ -31,6 +37,10 @@ public sealed class TenantResolutionMiddleware
         string? apiKey = context.Request.Headers[ApiKeyHeader].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
+            // WHY: utile per diagnosticare integrazioni frontend mal configurate. Non logghiamo materiale
+            // della chiave (qui assente comunque). Warning perché è un accesso negato, non un flusso normale.
+            _logger.LogWarning("Accesso negato: API key mancante su {Method} {Path}",
+                context.Request.Method, context.Request.Path);
             await HttpErrorWriter.WriteAsync(context, StatusCodes.Status401Unauthorized,
                 "unauthorized", "API key mancante.", context.RequestAborted);
             return;
@@ -40,6 +50,10 @@ public sealed class TenantResolutionMiddleware
         Tenant? tenant = await tenantRepository.ResolveActiveByApiKeyHashAsync(keyHash, context.RequestAborted);
         if (tenant is null)
         {
+            // WHY: rilevante per il monitoraggio di sicurezza (chiavi compromesse/revocate, brute-force).
+            // Non logghiamo la chiave in chiaro; il suo hash è sufficiente a correlare senza esporla.
+            _logger.LogWarning("Accesso negato: API key non valida (hash {KeyHash}) su {Path}",
+                keyHash, context.Request.Path);
             await HttpErrorWriter.WriteAsync(context, StatusCodes.Status403Forbidden,
                 "forbidden", "API key non valida.", context.RequestAborted);
             return;
@@ -48,7 +62,12 @@ public sealed class TenantResolutionMiddleware
         tenantContext.SetTenant(tenant.Id);
         context.Items[HttpContextExtensions.TenantItemKey] = tenant;
 
-        await _next(context);
+        // WHY: da qui in poi tutti i log della richiesta portano il TenantId, per correlare le operazioni
+        // a un tenant specifico senza doverlo passare manualmente a ogni log.
+        using (LogContext.PushProperty("TenantId", tenant.Id))
+        {
+            await _next(context);
+        }
     }
 
     // WHY: la risoluzione si applica solo agli endpoint pubblici tenant-scoped. /health è una liveness probe

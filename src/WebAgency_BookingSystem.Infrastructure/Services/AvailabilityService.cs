@@ -2,6 +2,7 @@
 // repository, risolve la finestra oraria per giorno (orari staff o tenant + chiusure) e delega il calcolo
 // puro ad AvailabilityCalculator. Converte il risultato nei DTO pubblici (orari come stringhe locali).
 
+using Microsoft.Extensions.Logging;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
@@ -22,24 +23,30 @@ internal sealed class AvailabilityService : IAvailabilityService
     private readonly IServiceRepository _services;
     private readonly IStaffRepository _staff;
     private readonly IBookingRepository _bookings;
+    private readonly ILogger<AvailabilityService> _logger;
 
     public AvailabilityService(
         ITenantContext tenantContext,
         ITenantRepository tenants,
         IServiceRepository services,
         IStaffRepository staff,
-        IBookingRepository bookings)
+        IBookingRepository bookings,
+        ILogger<AvailabilityService> logger)
     {
         _tenantContext = tenantContext;
         _tenants = tenants;
         _services = services;
         _staff = staff;
         _bookings = bookings;
+        _logger = logger;
     }
 
     public async Task<Result<IReadOnlyList<AvailabilityDayResponse>>> GetAvailabilityAsync(
         AvailabilityRequest request, CancellationToken ct = default)
     {
+        _logger.LogDebug("Disponibilità richiesta per service {ServiceId} staff {StaffId} dal {From} al {To}",
+            request.ServiceId, request.StaffId, request.DateFrom, request.DateTo);
+
         if (request.DateFrom > request.DateTo)
         {
             return Error.Validation("validation_error", "L'intervallo di date non è valido: dateFrom è successivo a dateTo.");
