@@ -26,6 +26,14 @@ I gap principali per un sistema **realmente in produzione con clienti** sono: **
 
 ---
 
+## Copertura & metodo della review
+Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: pipeline e middleware, servizi di disponibilità/prenotazione, `AvailabilityCalculator`, configurazioni EF, repository, DTO↔contratto, Dockerfile/compose/settings.
+**Approfondito:** logica booking/availability, concorrenza/advisory lock, deploy/production-readiness, coerenza commenti.
+**Verificato in seconda passata:** algoritmo `AvailabilityCalculator` (griglia 15 min, buffer, pausa, anticipo — nessun bug bloccante oltre alla semantica buffer già in `DUBBI_SESSIONE.md` D-10), cascade/precisione nelle config EF (corrette), parità DTO↔contratto (allineata) → da cui i rilievi aggiuntivi R-31/R-32/R-33.
+**NON coperto (per natura statica / mancanza Docker):** comportamento a runtime (l'advisory lock, le query EF tradotte, la migrazione applicata) — vedi `DOCKER_SESSION_TODO.md`; e la correttezza funzionale end-to-end, che richiede i test (R-30).
+
+---
+
 ## 1. Logging & Observability  *(priorità esplicita del committente)*
 
 - [ ] **R-01 (P1) — Nessun logging applicativo nella logica di business.**
@@ -119,6 +127,16 @@ I gap principali per un sistema **realmente in produzione con clienti** sono: **
 - [ ] **R-20 (P3) — `CheckBookingRulesAsync` ritorna `Result<CreateBookingResponse>` con valore dummy `default!`** per veicolare solo l'esito → odore di design. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
   *Fix:* usare `Result` non generico o un tipo esito dedicato (`ValidationOutcome`).
 
+- [ ] **R-31 (P1) — Gli errori di binding/deserializzazione bypassano l'envelope d'errore del contratto.**
+  Il contratto (spec 03) impone che **tutti** gli errori abbiano forma `{ type, message, errors? }`. Ma gli errori di binding di Minimal API (Guid malformato, query param obbligatorio mancante, JSON non valido) producono il **400 di default di ASP.NET** (`BadHttpRequestException`/ProblemDetails RFC7807), **non** l'envelope. Es.: `GET /availability` senza `dateFrom`, o `serviceId` non-Guid → 400 fuori formato. File: tutti gli endpoint con parametri tipizzati ([AvailabilityEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/AvailabilityEndpoints.cs), [BookingEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/BookingEndpoints.cs)).
+  *Impatto:* il frontend riceve due formati d'errore diversi a seconda del tipo di errore → gestione incoerente lato client.
+  *Fix:* gestire `BadHttpRequestException`/binding nel middleware (o `AddProblemDetails` con customizzazione) per emettere l'envelope `{ type: "bad_request", message, ... }` anche per i 400 di binding.
+
+- [ ] **R-32 (P3) — Edge DST nei confronti orari di disponibilità.**
+  `AvailabilityCalculator` e `BookingService` confrontano `DateTime` locali “naive” (Kind=Unspecified) ottenuti da `TenantTime`/`DateOnly.ToDateTime`. Nel giorno del cambio ora legale il confronto con l'anticipo minimo può sfasare di un'ora. File: [AvailabilityCalculator.cs](src/WebAgency_BookingSystem.Core/Availability/AvailabilityCalculator.cs), [TenantTime.cs](src/WebAgency_BookingSystem.Infrastructure/Services/TenantTime.cs).
+  *Impatto:* marginale (2 giorni/anno, ±1h sull'anticipo minimo).
+  *Fix (se rilevante):* ragionare in `DateTimeOffset` o documentare il limite; coprire con un test mirato.
+
 ---
 
 ## 5. Performance & Scalabilità
@@ -157,6 +175,11 @@ I gap principali per un sistema **realmente in produzione con clienti** sono: **
   - il commento “GDPR-safe” su Serilog ([Program.cs](src/WebAgency_BookingSystem.Api/Program.cs)) presuppone che l'IP non sia loggato: rivalutare introducendo ForwardedHeaders/logging IP;
   - i riferimenti all'header `X-Api-Key` vs `X-API-Key` (vedi `DUBBI_SESSIONE.md` D-06) vanno uniformati alla decisione finale.
 
+- [ ] **R-33 (P2) — Nessun analyzer / `TreatWarningsAsErrors` / `.editorconfig` condiviso.**
+  I `.csproj` non abilitano `EnableNETAnalyzers`/`AnalysisLevel` né trattano i warning come errori; non c'è `.editorconfig` per stile/regole condivise. I 6 warning MSB3277 del tool restano silenziosi (vedi `DUBBI_SESSIONE.md` D-11).
+  *Impatto:* per una codebase “di alto livello” la qualità non è imposta automaticamente; i warning si accumulano.
+  *Fix:* `Directory.Build.props` con analyzer abilitati e (almeno in CI) warnings-as-errors; `.editorconfig` condiviso. Risolvere prima i warning esistenti.
+
 ---
 
 ## 7. Testing  *(rischio trasversale)*
@@ -167,12 +190,12 @@ I gap principali per un sistema **realmente in produzione con clienti** sono: **
 
 ---
 
-## Riepilogo per severità
+## Riepilogo per severità (33 rilievi)
 | Severità | ID |
 |---|---|
 | **P0** | R-06 (CORS) |
-| **P1** | R-01, R-02, R-04, R-07, R-08, R-09, R-10, R-12, R-14, R-30 |
-| **P2** | R-03, R-05, R-15, R-17, R-18, R-21, R-22, R-25 |
-| **P3** | R-11, R-13, R-16, R-19, R-20, R-23, R-24, R-26, R-27, R-28, R-29 |
+| **P1** | R-01, R-02, R-04, R-07, R-08, R-09, R-10, R-12, R-14, R-30, R-31 |
+| **P2** | R-03, R-05, R-15, R-17, R-18, R-21, R-22, R-25, R-33 |
+| **P3** | R-11, R-13, R-16, R-19, R-20, R-23, R-24, R-26, R-27, R-28, R-29, R-32 |
 
 > Nota: i rilievi su CORS, ForwardedHeaders, binding porta, logging e test **non erano nello scope “1.1→5.8”** della sessione autonoma (che mirava al codice degli endpoint pubblici con gate build), ma sono **prerequisiti di produzione**. Vanno schedulati prima del go-live, idealmente insieme alle Sezioni 6/7 e alla Sezione 9 (test).
