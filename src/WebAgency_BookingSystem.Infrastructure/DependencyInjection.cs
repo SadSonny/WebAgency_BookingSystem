@@ -63,6 +63,7 @@ public static class DependencyInjection
         // Admin CRUD (6.x): servizi, orari/chiusure, staff, prenotazioni.
         services.AddScoped<IAdminServiceCatalog, AdminServiceCatalog>();
         services.AddScoped<IAdminScheduleManager, AdminScheduleManager>();
+        services.AddScoped<IAdminStaffManager, AdminStaffManager>();
 
         services.AddScoped<IAvailabilityService, AvailabilityService>();
         services.AddScoped<IBookingService, BookingService>();
