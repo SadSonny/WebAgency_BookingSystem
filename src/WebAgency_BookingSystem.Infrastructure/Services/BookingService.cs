@@ -150,8 +150,7 @@ internal sealed class BookingService : IBookingService
                 Status = BookingStatus.Confirmed,
                 CancellationToken = Guid.NewGuid(),
                 PriceAtBooking = price,
-                CreatedAt = nowUtc,
-                UpdatedAt = nowUtc,
+                // CreatedAt/UpdatedAt valorizzati dal TimestampInterceptor (R-27).
             };
 
             await _bookings.AddAsync(booking, ct);
@@ -262,7 +261,7 @@ internal sealed class BookingService : IBookingService
         booking.Status = BookingStatus.Cancelled;
         booking.CancelledAt = nowUtc;
         booking.CancellationReason = "customer";
-        booking.UpdatedAt = nowUtc;
+        // UpdatedAt valorizzato dal TimestampInterceptor (R-27).
 
         _db.AuditLogs.Add(new AuditLog
         {

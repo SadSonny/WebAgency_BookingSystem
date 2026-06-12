@@ -10,7 +10,7 @@ namespace WebAgency_BookingSystem.Core.Entities;
 /// Prestazione prenotabile. La durata e il prezzo vengono "congelati" sulla prenotazione al momento
 /// della creazione, così modifiche successive non alterano le prenotazioni esistenti.
 /// </summary>
-public class Service
+public class Service : IAuditableEntity
 {
     /// <summary>Identificativo univoco (PK).</summary>
     public Guid Id { get; set; }

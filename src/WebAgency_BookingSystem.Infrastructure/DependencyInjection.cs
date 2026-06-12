@@ -11,6 +11,7 @@ using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Caching;
+using WebAgency_BookingSystem.Infrastructure.Persistence.Interceptors;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Repositories;
 using WebAgency_BookingSystem.Infrastructure.Services;
 using WebAgency_BookingSystem.Infrastructure.Tenancy;
@@ -37,7 +38,8 @@ public static class DependencyInjection
         // compatibile con il retry. Npgsql gestisce nativamente i codici di errore transitori.
         services.AddDbContext<BookingSystemDbContext>(options =>
             options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure())
-                .UseSnakeCaseNamingConvention());
+                .UseSnakeCaseNamingConvention()
+                .AddInterceptors(new TimestampInterceptor()));
 
         // Cache in-memory per dati quasi-statici (risoluzione API key, config/orari/servizi) — R-15/R-22.
         services.AddMemoryCache();

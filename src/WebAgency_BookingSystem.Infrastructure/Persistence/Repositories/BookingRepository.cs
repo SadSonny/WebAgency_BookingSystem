@@ -3,6 +3,7 @@
 // global query filter. La persistenza (SaveChanges) è gestita dal BookingService nella sua transazione.
 
 using Microsoft.EntityFrameworkCore;
+using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Entities;
 using WebAgency_BookingSystem.Core.Enums;
@@ -13,8 +14,13 @@ namespace WebAgency_BookingSystem.Infrastructure.Persistence.Repositories;
 internal sealed class BookingRepository : IBookingRepository
 {
     private readonly BookingSystemDbContext _db;
+    private readonly ITenantContext _tenantContext;
 
-    public BookingRepository(BookingSystemDbContext db) => _db = db;
+    public BookingRepository(BookingSystemDbContext db, ITenantContext tenantContext)
+    {
+        _db = db;
+        _tenantContext = tenantContext;
+    }
 
     public async Task<IReadOnlyList<Booking>> GetConfirmedByServiceInRangeAsync(
         Guid serviceId, DateOnly fromInclusive, DateOnly toInclusive, CancellationToken ct = default) =>
@@ -35,7 +41,12 @@ internal sealed class BookingRepository : IBookingRepository
             .ToListAsync(ct);
 
     public Task<Booking?> GetByIdAndTokenAsync(Guid bookingId, Guid token, CancellationToken ct = default) =>
+        // WHY (R-28): IgnoreQueryFilters per includere Service/Staff anche se SOFT-DELETED (vista storica del
+        // dettaglio: il nome del servizio/staff deve restare visibile). Lo scoping per tenant è preservato in
+        // modo esplicito col filtro su TenantId, quindi non c'è rischio di leak cross-tenant.
         _db.Bookings
+            .IgnoreQueryFilters()
+            .Where(b => b.TenantId == _tenantContext.TenantId)
             .Include(b => b.Service)
             .Include(b => b.Staff)
             .FirstOrDefaultAsync(b => b.Id == bookingId && b.CancellationToken == token, ct);

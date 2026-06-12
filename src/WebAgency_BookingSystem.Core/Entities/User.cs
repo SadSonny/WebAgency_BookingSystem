@@ -9,7 +9,7 @@ namespace WebAgency_BookingSystem.Core.Entities;
 /// <summary>
 /// Account amministrativo associato a un tenant, usato per l'autenticazione admin via JWT.
 /// </summary>
-public class User
+public class User : IAuditableEntity
 {
     /// <summary>Identificativo univoco (PK).</summary>
     public Guid Id { get; set; }

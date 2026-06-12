@@ -10,7 +10,7 @@ namespace WebAgency_BookingSystem.Core.Entities;
 /// <summary>
 /// Appuntamento prenotato. Identificabile pubblicamente solo combinando Id + <see cref="CancellationToken"/>.
 /// </summary>
-public class Booking
+public class Booking : IAuditableEntity
 {
     /// <summary>Identificativo univoco (PK).</summary>
     public Guid Id { get; set; }

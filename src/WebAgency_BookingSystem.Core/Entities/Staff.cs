@@ -7,7 +7,7 @@ namespace WebAgency_BookingSystem.Core.Entities;
 /// <summary>
 /// Operatore che eroga i servizi. Può avere orari propri e un sottoinsieme di servizi abilitati.
 /// </summary>
-public class Staff
+public class Staff : IAuditableEntity
 {
     /// <summary>Identificativo univoco (PK).</summary>
     public Guid Id { get; set; }

@@ -7,7 +7,7 @@ namespace WebAgency_BookingSystem.Core.Entities;
 /// <summary>
 /// Attività commerciale registrata sulla piattaforma. Aggrega servizi, staff, orari e prenotazioni.
 /// </summary>
-public class Tenant
+public class Tenant : IAuditableEntity
 {
     /// <summary>Identificativo univoco del tenant (PK).</summary>
     public Guid Id { get; set; }
