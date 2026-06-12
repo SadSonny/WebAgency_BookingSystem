@@ -7,7 +7,7 @@
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**→ 3.1 `BookingSystemDbContext`** con Global Query Filter su `tenant_id`.
+**→ 4.1 `TenantResolutionMiddleware`** (header `X-Api-Key` → `tenant_id` nel context).
 > Sessione autonoma in corso (senza Docker): si implementa V1 fino allo step 5.8 (endpoint pubblici), gate `dotnet build`.
 > Rinviato alla sessione con Docker: `dotnet ef database update`, run API, smoke-test (vedi `DOCKER_SESSION_TODO.md`).
 
@@ -43,14 +43,14 @@
 - [x] 2.9 Enums: `BufferPosition`, `BookingStatus`, `UserRole`, `DayOfWeekIndex`
 
 ### 3. Infrastructure Layer (`WebAgency_BookingSystem.Infrastructure`)
-- [ ] 3.1 `BookingSystemDbContext` con Global Query Filters per `tenant_id`
-- [ ] 3.2 Configurazioni EF Core (Fluent API per ogni entità)
-- [ ] 3.3 Prima migrazione EF Core (schema completo)
-- [ ] 3.4 `TenantRepository`
-- [ ] 3.5 `ServiceRepository`
-- [ ] 3.6 `StaffRepository`
-- [ ] 3.7 `BookingRepository`
-- [ ] 3.8 `EmailServiceStub` (implementazione no-op di `IEmailService`)
+- [x] 3.1 `BookingSystemDbContext` con Global Query Filters per `tenant_id` (+ soft delete service/staff)
+- [x] 3.2 Configurazioni EF Core (Fluent API per ogni entità) — snake_case, indici, vincoli, enum→string
+- [x] 3.3 Prima migrazione EF Core (`InitialSchema`) — **generata, NON applicata** (manca Docker; vedi `DOCKER_SESSION_TODO.md`)
+- [x] 3.4 `TenantRepository` (+ risoluzione API key con `IgnoreQueryFilters`)
+- [x] 3.5 `ServiceRepository`
+- [x] 3.6 `StaffRepository`
+- [x] 3.7 `BookingRepository`
+- [x] 3.8 `EmailServiceStub` (implementazione no-op di `IEmailService`) + `AddInfrastructure` DI
 
 ### 4. Middleware & Cross-Cutting (`WebAgency_BookingSystem.Api`)
 - [ ] 4.1 `TenantResolutionMiddleware` (header `X-Api-Key` → `tenant_id` nel context)
@@ -156,3 +156,4 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-11 | Feature | Step 1.0 completato: OpenAPI + Scalar.AspNetCore 2.16.3 — UI su `/scalar`, doc su `/openapi/v1.json` |
 | 2026-06-12 | Infra | Step 1.1–1.5 completati: docker-compose (Postgres 16 + pgAdmin), Dockerfile multi-stage, appsettings completi, `.env.example`, pacchetti NuGet (EF Core/Npgsql, Serilog, FluentValidation). Build verde. |
 | 2026-06-12 | Core | Step 2.1–2.7, 2.9 completati: 11 entità, enum, `Result<T>`/`Error`/`ErrorType`, DTO pubblici + `ErrorResponse`, interfacce repository/servizi + `ITenantContext`. Deviazioni schema: buffer per-servizio (AD-03), `deleted_at` su services/staff. Step 2.8 (DTO admin) rinviato con 6.x. Build Core verde. |
+| 2026-06-12 | Infra | Step 3.1–3.8 completati: DbContext + global query filter, 11 config Fluent API (snake_case via EFCore.NamingConventions), migrazione `InitialSchema` **generata** con factory design-time (no Docker), 4 repository, `EmailServiceStub`, DI `AddInfrastructure`. Build verde. |
