@@ -106,14 +106,41 @@ builder.Services.AddCors(options =>
 // I validator degli endpoint pubblici (es. CreateBookingRequest) vivono in questo assembly.
 builder.Services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
 
-// ── Rate limiting (4.2) ───────────────────────────────────────────────────────
+// ── Rate limiting (4.2 / R-14) ────────────────────────────────────────────────
 int permitPerMinute = builder.Configuration.GetValue<int?>("RATE_LIMIT_PER_MINUTE")
     ?? builder.Configuration.GetValue<int?>("RateLimiting:PermitPerMinute")
     ?? 100;
 
+// WHY (R-14): limite per IP applicato a monte della risoluzione tenant, così anche i tentativi con API key
+// mancante/non valida (che verrebbero respinti con 401/403 PRIMA del limiter per-chiave) sono limitati →
+// protegge da brute-force/enumerazione delle API key e dal carico DB di ogni tentativo. Tipicamente più alto
+// del limite per-chiave per non penalizzare un'origine legittima con più chiavi.
+int ipPermitPerMinute = builder.Configuration.GetValue<int?>("RATE_LIMIT_IP_PER_MINUTE")
+    ?? builder.Configuration.GetValue<int?>("RateLimiting:IpPermitPerMinute")
+    ?? 300;
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Limite globale per IP: vale per ogni richiesta /api/v1 (escluso /health), anche prima dell'auth.
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        PathString path = httpContext.Request.Path;
+        if (!path.StartsWithSegments("/api/v1") || path.StartsWithSegments("/api/v1/health"))
+        {
+            return RateLimitPartition.GetNoLimiter("__unlimited__");
+        }
+
+        string ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetSlidingWindowLimiter($"ip:{ip}", _ => new SlidingWindowRateLimiterOptions
+        {
+            PermitLimit = ipPermitPerMinute,
+            Window = TimeSpan.FromMinutes(1),
+            SegmentsPerWindow = 6,
+            QueueLimit = 0,
+        });
+    });
 
     // WHY: la finestra scorrevole per API key approssima un limite continuo (100/min) meglio della fixed
     // window, evitando burst al confine dei minuti. Fallback su IP quando la chiave non è presente.
@@ -123,7 +150,7 @@ builder.Services.AddRateLimiter(options =>
             ?? httpContext.Connection.RemoteIpAddress?.ToString()
             ?? "anonymous";
 
-        return RateLimitPartition.GetSlidingWindowLimiter(partitionKey, _ => new SlidingWindowRateLimiterOptions
+        return RateLimitPartition.GetSlidingWindowLimiter($"key:{partitionKey}", _ => new SlidingWindowRateLimiterOptions
         {
             PermitLimit = permitPerMinute,
             Window = TimeSpan.FromMinutes(1),
@@ -180,11 +207,13 @@ app.UseHttpsRedirection();
 //    short-circuitato qui senza essere bloccato con 401 dal middleware tenant.
 app.UseCors(CorsPolicies.Frontend);
 
-// 5. Risoluzione tenant da X-Api-Key (popola ITenantContext per le rotte pubbliche tenant-scoped).
-app.UseMiddleware<TenantResolutionMiddleware>();
-
-// 6. Rate limiter (applicato agli endpoint che dichiarano RequireRateLimiting).
+// 5. Rate limiter PRIMA della tenant resolution (R-14): il GlobalLimiter per IP deve valere anche per i
+//    tentativi con API key mancante/non valida (che verrebbero respinti dal middleware tenant). Le policy
+//    per-endpoint (RequireRateLimiting) restano applicate perché l'endpoint è già noto dopo il routing.
 app.UseRateLimiter();
+
+// 6. Risoluzione tenant da X-Api-Key (popola ITenantContext per le rotte pubbliche tenant-scoped).
+app.UseMiddleware<TenantResolutionMiddleware>();
 
 // ── Endpoint pubblici (5.1-5.8) ───────────────────────────────────────────────
 app.MapPublicEndpoints();
