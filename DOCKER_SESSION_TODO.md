@@ -44,6 +44,14 @@
 - [ ] Buffer: slot immediatamente successivo a prenotazione con buffer > 0 → non disponibile (vedi DUBBI D-10)
 - [ ] Pausa pranzo, anticipo minimo, bordo chiusura: confrontare con i casi di `04-logica-disponibilita.md`
 
+## 6-bis. Verifica fix di hardening (sessione 2026-06-12)
+- [ ] **CORS (R-06):** preflight `OPTIONS` da un'origine consentita → 200/204 con header CORS; da origine non in `Cors:AllowedOrigins` (in non-Development) → bloccato. Verificare che il preflight NON richieda `X-Api-Key`.
+- [ ] **Porta runtime (R-08):** con `PORT` impostata, l'app ascolta su quella porta (log Kestrel "Now listening on ...:$PORT").
+- [ ] **ForwardedHeaders (R-07):** dietro proxy, l'IP anonimizzato in `audit_log`/log è quello del client (X-Forwarded-For), non del proxy.
+- [ ] **Correlation (R-02):** ogni risposta ha header `X-Trace-Id`; i log della richiesta riportano `RequestId` e (dopo auth) `TenantId`.
+- [ ] **Binding envelope (R-31):** `GET /availability` senza `dateFrom` → 400 `{ "type": "bad_request" }`; POST con JSON malformato → 400 `bad_request`.
+- [ ] **Distinzione 409 (R-04):** sotto contesa concorrente i log distinguono "advisory lock non acquisito" da "slot non disponibile alla ri-verifica".
+
 ## 7. Punti aperti da confermare con l'utente
 Vedi `DUBBI_SESSIONE.md` (D-01 … D-11): versioni NuGet, header API key, `tenant/config.bufferMinutes`,
 soft delete, semantica buffer, warning MSB3277 nel tool provisioning.
