@@ -93,85 +93,116 @@ internal sealed class BookingService : IBookingService
 
         long lockKey = ComputeLockKey(tenantId, request.ServiceId, date, time);
 
-        // WHY: usiamo pg_try_advisory_xact_lock (non bloccante) invece di un lock di riga, perché lo slot
-        // potrebbe non avere ancora alcuna prenotazione (nessuna riga da lockare). La chiave hashata su
-        // tenant+servizio+data+ora dà granularità minima. Il lock si rilascia automaticamente a fine transazione.
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        // WHY (R-12): con EnableRetryOnFailure le transazioni manuali devono girare dentro un'execution
+        // strategy, che può rieseguire l'intero blocco su errori transitori del DB. La creazione vera e propria
+        // (advisory lock + ri-verifica + insert) sta qui dentro; l'invio email resta FUORI (post-commit), così
+        // un eventuale retry non può inviare email doppie.
+        Booking? createdBooking = null;
+        var strategy = _db.Database.CreateExecutionStrategy();
 
-        if (!await TryAcquireSlotLockAsync(lockKey, ct))
+        Result<CreateBookingResponse> outcome = await strategy.ExecuteAsync(async () =>
         {
-            await Task.Delay(LockRetryDelayMs, ct);
+            createdBooking = null;
+
+            // WHY: pg_try_advisory_xact_lock (non bloccante) invece di un lock di riga: lo slot potrebbe non
+            // avere ancora alcuna prenotazione. La chiave hashata su tenant+servizio+data+ora dà granularità
+            // minima e si rilascia automaticamente a fine transazione.
+            await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+
             if (!await TryAcquireSlotLockAsync(lockKey, ct))
             {
-                // WHY (R-04): distinguiamo questo 409 (CONTESA: un'altra transazione tiene il lock sullo
-                // stesso slot) dal 409 di capacità esaurita più sotto. Il client vede lo stesso codice, ma
-                // i log permettono di capire se è concorrenza o slot realmente pieno.
-                _logger.LogWarning(
-                    "Prenotazione in conflitto: advisory lock non acquisito (slot conteso) per service {ServiceId} il {Date} alle {Time}",
-                    request.ServiceId, date, time);
-                return Error.Conflict("slot_unavailable",
-                    "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova.");
+                await Task.Delay(LockRetryDelayMs, ct);
+                if (!await TryAcquireSlotLockAsync(lockKey, ct))
+                {
+                    // R-04: CONTESA (un'altra transazione tiene il lock), distinta dalla capacità esaurita.
+                    _logger.LogWarning(
+                        "Prenotazione in conflitto: advisory lock non acquisito (slot conteso) per service {ServiceId} il {Date} alle {Time}",
+                        request.ServiceId, date, time);
+                    return Result.Failure<CreateBookingResponse>(Error.Conflict("slot_unavailable",
+                        "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova."));
+                }
             }
-        }
 
-        Result<CreateBookingResponse> rulesCheck = await CheckBookingRulesAsync(tenant, service, request.StaffId, date, time, tenantNow, ct);
-        if (rulesCheck.IsFailure)
-        {
-            return rulesCheck;
-        }
+            Result rulesCheck = await CheckBookingRulesAsync(tenant, service, request.StaffId, date, time, tenantNow, ct);
+            if (rulesCheck.IsFailure)
+            {
+                return Result.Failure<CreateBookingResponse>(rulesCheck.Error);
+            }
 
-        decimal? price = await ResolvePriceAsync(service, request.StaffId, ct);
-        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            decimal? price = await ResolvePriceAsync(service, request.StaffId, ct);
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
 
-        var booking = new Booking
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            ServiceId = request.ServiceId,
-            StaffId = request.StaffId,
-            BookingDate = date,
-            BookingTime = time,
-            DurationMinutes = service.DurationMinutes,
-            CustomerName = request.Customer.Name,
-            CustomerPhone = request.Customer.Phone,
-            CustomerEmail = request.Customer.Email,
-            CustomerNotes = request.Customer.Notes,
-            GdprConsent = request.GdprConsent,
-            GdprConsentAt = nowUtc,
-            Status = BookingStatus.Confirmed,
-            CancellationToken = Guid.NewGuid(),
-            PriceAtBooking = price,
-            CreatedAt = nowUtc,
-            UpdatedAt = nowUtc,
-        };
+            var booking = new Booking
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                ServiceId = request.ServiceId,
+                StaffId = request.StaffId,
+                BookingDate = date,
+                BookingTime = time,
+                DurationMinutes = service.DurationMinutes,
+                CustomerName = request.Customer.Name,
+                CustomerPhone = request.Customer.Phone,
+                CustomerEmail = request.Customer.Email,
+                CustomerNotes = request.Customer.Notes,
+                GdprConsent = request.GdprConsent,
+                GdprConsentAt = nowUtc,
+                Status = BookingStatus.Confirmed,
+                CancellationToken = Guid.NewGuid(),
+                PriceAtBooking = price,
+                CreatedAt = nowUtc,
+                UpdatedAt = nowUtc,
+            };
 
-        await _bookings.AddAsync(booking, ct);
-        _db.AuditLogs.Add(new AuditLog
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            BookingId = booking.Id,
-            Action = "booking_created",
-            Actor = "customer",
-            IpAnonymized = clientIpAnonymized,
-            CreatedAt = nowUtc,
+            await _bookings.AddAsync(booking, ct);
+            _db.AuditLogs.Add(new AuditLog
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                BookingId = booking.Id,
+                Action = "booking_created",
+                Actor = "customer",
+                IpAnonymized = clientIpAnonymized,
+                CreatedAt = nowUtc,
+            });
+
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            catch (DbUpdateException ex)
+            {
+                // R-18: conflitto di concorrenza/vincolo in race — difesa in profondità se l'advisory lock
+                // non bastasse. Mappiamo a 409 invece di lasciar propagare un 500.
+                _logger.LogWarning(ex,
+                    "Conflitto di persistenza nella creazione prenotazione per service {ServiceId} il {Date} alle {Time}",
+                    request.ServiceId, date, time);
+                return Result.Failure<CreateBookingResponse>(Error.Conflict("slot_unavailable",
+                    "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova."));
+            }
+
+            createdBooking = booking;
+            return Result.Success(new CreateBookingResponse(booking.Id, booking.Status.ToApiString(), booking.CancellationToken));
         });
 
-        await _db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+        if (outcome.IsFailure || createdBooking is null)
+        {
+            return outcome;
+        }
 
         _logger.LogInformation(
             "Prenotazione creata {BookingId} per service {ServiceId} staff {StaffId} il {Date} alle {Time}",
-            booking.Id, request.ServiceId, request.StaffId, date, time);
+            createdBooking.Id, request.ServiceId, request.StaffId, date, time);
 
-        // Post-commit: in V1 l'email è no-op (istantanea). In V2 (Brevo) valutare invio fire-and-forget.
-        await _email.SendBookingConfirmationAsync(booking, ct);
+        // Post-commit (FUORI dall'execution strategy): in V1 l'email è no-op. In V2 valutare outbox/fire-and-forget.
+        await _email.SendBookingConfirmationAsync(createdBooking, ct);
         if (string.Equals(tenant.NotificationMethod, "email", StringComparison.OrdinalIgnoreCase))
         {
-            await _email.SendOwnerNotificationAsync(booking, ct);
+            await _email.SendOwnerNotificationAsync(createdBooking, ct);
         }
 
-        return Result.Success(new CreateBookingResponse(booking.Id, booking.Status.ToApiString(), booking.CancellationToken));
+        return outcome;
     }
 
     public async Task<Result<BookingDetailResponse>> GetByTokenAsync(Guid bookingId, Guid token, CancellationToken ct = default)
@@ -253,7 +284,8 @@ internal sealed class BookingService : IBookingService
     }
 
     // Ri-verifica regole di business + disponibilità DENTRO la transazione (con dati freschi sotto lock).
-    private async Task<Result<CreateBookingResponse>> CheckBookingRulesAsync(
+    // Restituisce un Result senza valore: veicola solo l'esito (successo o errore), non un payload (R-20).
+    private async Task<Result> CheckBookingRulesAsync(
         Tenant tenant, Service service, Guid? staffId, DateOnly date, TimeOnly time, DateTime tenantNow, CancellationToken ct)
     {
         Guid tenantId = tenant.Id;
@@ -291,9 +323,7 @@ internal sealed class BookingService : IBookingService
             : await _bookings.GetConfirmedByServiceInRangeAsync(service.Id, date, date, ct);
 
         var slots = dayBookings.Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
-        var config = new ServiceSlotConfig(
-            service.DurationMinutes, service.ParallelSlots,
-            service.BufferEnabled ? service.BufferMinutes : 0, service.BufferPosition);
+        ServiceSlotConfig config = ServiceSlotConfig.From(service);
 
         if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, staffId, slots))
         {
@@ -306,7 +336,7 @@ internal sealed class BookingService : IBookingService
                 "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova.");
         }
 
-        return Result.Success(default(CreateBookingResponse)!);
+        return Result.Success();
     }
 
     private async Task<decimal?> ResolvePriceAsync(Service service, Guid? staffId, CancellationToken ct)

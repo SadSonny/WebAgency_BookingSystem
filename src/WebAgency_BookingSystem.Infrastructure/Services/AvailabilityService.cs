@@ -102,11 +102,7 @@ internal sealed class AvailabilityService : IAvailabilityService
             .ToLookup(b => b.BookingDate, b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId));
 
         DateTime tenantNow = TenantTime.Now(tenant.Timezone);
-        var config = new ServiceSlotConfig(
-            service.DurationMinutes,
-            service.ParallelSlots,
-            service.BufferEnabled ? service.BufferMinutes : 0,
-            service.BufferPosition);
+        ServiceSlotConfig config = ServiceSlotConfig.From(service);
 
         var days = new List<AvailabilityDayResponse>();
         for (DateOnly date = request.DateFrom; date <= request.DateTo; date = date.AddDays(1))

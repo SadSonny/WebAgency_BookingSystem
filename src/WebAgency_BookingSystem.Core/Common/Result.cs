@@ -48,6 +48,9 @@ public class Result
 
     /// <summary>Crea un esito di fallimento tipizzato con l'errore indicato.</summary>
     public static Result<T> Failure<T>(Error error) => new(default, false, error);
+
+    /// <summary>Promuove implicitamente un Error a Result (senza valore) di fallimento.</summary>
+    public static implicit operator Result(Error error) => Failure(error);
 }
 
 /// <summary>

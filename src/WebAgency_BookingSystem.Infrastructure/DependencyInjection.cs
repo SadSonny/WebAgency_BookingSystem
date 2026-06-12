@@ -31,8 +31,12 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException(
                 "Connection string mancante: impostare DATABASE_URL o ConnectionStrings:Database.");
 
+        // WHY (R-12): EnableRetryOnFailure rende il DbContext resiliente agli errori transitori del DB
+        // (riavvii, failover). Le transazioni manuali (BookingService) girano dentro un'execution strategy
+        // compatibile con il retry. Npgsql gestisce nativamente i codici di errore transitori.
         services.AddDbContext<BookingSystemDbContext>(options =>
-            options.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
+            options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure())
+                .UseSnakeCaseNamingConvention());
 
         // Il tenant corrente vive per-richiesta: scoped, popolato dal middleware, letto dal DbContext.
         services.AddScoped<ITenantContext, TenantContext>();
