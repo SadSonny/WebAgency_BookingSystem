@@ -1,0 +1,46 @@
+# [INTENT]: Infrastruttura di sviluppo locale. Avvia PostgreSQL 16 (database applicativo)
+# e pgAdmin (ispezione visiva del DB) come da AD-07. Non include l'API: in sviluppo
+# l'API gira con `dotnet run` sull'host per hot-reload e debug. Le credenziali qui sono
+# volutamente deboli perché valgono SOLO in locale (mai usate in produzione su Railway).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bookingsystem-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bookingsystem
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # WHY: pgAdmin e l'API non devono partire prima che Postgres accetti connessioni.
+      # pg_isready evita race condition all'avvio del compose.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bookingsystem"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: bookingsystem-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      # WHY: disabilita la schermata di login master in locale per accesso immediato.
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+
+volumes:
+  postgres-data:
+  pgadmin-data:

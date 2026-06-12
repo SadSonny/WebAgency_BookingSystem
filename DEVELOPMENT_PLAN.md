@@ -7,7 +7,9 @@
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**→ 1.1 `docker-compose.yml`** (PostgreSQL 16 + pgAdmin).
+**→ 2.1 Entità Core** (`Tenant`, `TenantApiKey`, `TenantBusinessHours`, `TenantSpecialClosure`).
+> Sessione autonoma in corso (senza Docker): si implementa V1 fino allo step 5.8 (endpoint pubblici), gate `dotnet build`.
+> Rinviato alla sessione con Docker: `dotnet ef database update`, run API, smoke-test (vedi `DOCKER_SESSION_TODO.md`).
 
 ### Come aggiornare questo file
 - Spunta `[x]` il task completato immediatamente dopo averlo finito e verificato con `dotnet build`.
@@ -23,11 +25,11 @@
 
 ### 1. Infrastruttura & Setup
 - [x] 1.0 OpenAPI + Scalar UI (`Scalar.AspNetCore 2.16.3`, `Microsoft.AspNetCore.OpenApi 10.0.8`) — UI: `/scalar`, doc JSON: `/openapi/v1.json`
-- [ ] 1.1 `docker-compose.yml` (PostgreSQL 16 + pgAdmin)
-- [ ] 1.2 `Dockerfile` multi-stage per `WebAgency_BookingSystem.Api`
-- [ ] 1.3 `appsettings.json` + `appsettings.Development.json` con tutte le sezioni
-- [ ] 1.4 `.env.example` con tutte le variabili d'ambiente documentate
-- [ ] 1.5 NuGet packages aggiunti a tutti i progetti
+- [x] 1.1 `docker-compose.yml` (PostgreSQL 16 + pgAdmin)
+- [x] 1.2 `Dockerfile` multi-stage per `WebAgency_BookingSystem.Api`
+- [x] 1.3 `appsettings.json` + `appsettings.Development.json` con tutte le sezioni
+- [x] 1.4 `.env.example` con tutte le variabili d'ambiente documentate
+- [x] 1.5 NuGet packages aggiunti (Infra: `Npgsql.EntityFrameworkCore.PostgreSQL 10.0.2`, `Microsoft.EntityFrameworkCore.Design 10.0.9`; Api: stessi `Design` + `Serilog.AspNetCore`, `Serilog.Sinks.Console`, `FluentValidation 12.1.1` + DI ext). Core resta senza dipendenze esterne.
 
 ### 2. Core Layer (`WebAgency_BookingSystem.Core`)
 - [ ] 2.1 Entità: `Tenant`, `TenantApiKey`, `TenantBusinessHours`, `TenantSpecialClosure`
@@ -149,3 +151,4 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-11 | Pianificazione | Piano V1/V2 creato; decisioni architetturali definite |
 | 2026-06-11 | Documentazione | CLAUDE.md e DEVELOPMENT_PLAN.md aggiornati con guida sessione AI, stato codebase, decisioni già prese |
 | 2026-06-11 | Feature | Step 1.0 completato: OpenAPI + Scalar.AspNetCore 2.16.3 — UI su `/scalar`, doc su `/openapi/v1.json` |
+| 2026-06-12 | Infra | Step 1.1–1.5 completati: docker-compose (Postgres 16 + pgAdmin), Dockerfile multi-stage, appsettings completi, `.env.example`, pacchetti NuGet (EF Core/Npgsql, Serilog, FluentValidation). Build verde. |
