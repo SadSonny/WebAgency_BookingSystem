@@ -2,17 +2,22 @@
 
 ## Stato Corrente del Progetto
 
-> **V1 FUNZIONALMENTE COMPLETA (Sezioni 1→7).**
-> Implementati: infra, Core, Infrastructure (DbContext + global query filter, config EF, **migrazione `InitialSchema`
-> generata, NON applicata**, repository, cache, interceptor, email stub), middleware (tenant resolution, JWT admin,
+> **V1 VALIDATA A RUNTIME (Sezioni 1→7 + sessione Docker 2026-06-13).**
+> Implementati e validati: infra, Core, Infrastructure (DbContext + global query filter, config EF, **migrazione `InitialSchema`
+> applicata**, repository, cache, interceptor, email stub), middleware (tenant resolution, JWT admin,
 > rate limiting, error handling, correlation, Serilog), **endpoint pubblici 5.1-5.8**, **Admin API 6.1-6.14**
 > (JWT + CRUD servizi/staff/orari/chiusure/prenotazioni), **CLI provisioning** (Sezione 7).
 > Build `dotnet build` verde (0 warning, analyzer + warnings-as-errors). 41 unit test verdi.
-> Tutti i rilievi della review fattibili senza Docker sono chiusi (`CODE_REVIEW_FINDINGS.md`).
+> Tutti gli endpoint validati a runtime con Docker. Nessun bug trovato.
 
-**Fase attuale:** V1 funzionalmente completa (sessioni autonome 2026-06-12/13, senza Docker).
+**Fase attuale:** V1 completamente validata (2026-06-13, con Docker).
 
-**Prossimo task:** Sessione con Docker — applicare la migrazione e validare a runtime tutta la V1 + integration test (`DOCKER_SESSION_TODO.md`). Poi V2 (email Brevo). Dubbi/decisioni aperte in `DUBBI_SESSIONE.md` (D-01…D-15).
+**Prossimo task:** Integration test con Testcontainers (9.3–9.6): advisory lock concorrente, pipeline middleware. Poi V2 (email Brevo quando API key disponibile). Dubbi/decisioni aperte in `DUBBI_SESSIONE.md` (D-01…D-15).
+
+**Note runtime (da `DOCKER_SESSION_TODO.md`):**
+- API porta **5022** (launchSettings.json profilo `http`)
+- DTO `PUT /admin/business-hours`: body `{ "days": [...] }` (non array bare)
+- DTO `PUT /admin/closures`: body `{ "closures": [...] }` (non array bare)
 
 ---
 

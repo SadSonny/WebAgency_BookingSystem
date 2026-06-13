@@ -1,16 +1,16 @@
 # Development Plan — WebAgency BookingSystem
 
-## Stato: V1 ENDPOINT PUBBLICI IMPLEMENTATI (Blocchi 1→5)
+## Stato: V1 VALIDATA A RUNTIME (Sezioni 1→7 + Docker session 2026-06-13)
 
-> Implementati i blocchi 1→5 (infra, Core, Infrastructure, middleware, endpoint pubblici 5.1–5.8).
-> Build `dotnet build` verde su tutti i progetti in scope. Migrazione `InitialSchema` **generata, non applicata**.
-> Mancano alla V1: Sezione 6 (Admin API), Sezione 7 (CLI provisioning). Poi V2 (email Brevo, test).
-> Validazione a runtime (apply migrazione, smoke-test) rinviata: vedi `DOCKER_SESSION_TODO.md`.
+> **V1 completamente validata**: infra, Core, Infrastructure, middleware, endpoint pubblici (5.1–5.8),
+> Admin API (6.1–6.14), CLI provisioning (7.x). Migrazione `InitialSchema` **applicata** (11 tabelle).
+> Build verde (0 warning), 41 unit test verdi. Tutti gli endpoint validati a runtime con Docker.
+> Prossimo passo: integration test con Testcontainers (9.4/9.5 advisory lock) e V2 (email Brevo).
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**→ Sessione con Docker**: applicare la migrazione e validare a runtime tutta la V1 (pubblico + admin + CLI provisioning) — vedi `DOCKER_SESSION_TODO.md`. Poi V2 (email Brevo) e completamento test (integrazione, R-30/R-17).
-> **V1 funzionalmente completa** (Sezioni 1-7): endpoint pubblici, Admin API (JWT + CRUD), CLI provisioning. `dotnet build` verde (0 warning), 41 unit test verdi. Manca solo la validazione a runtime e i test d'integrazione, che richiedono Docker.
+**→ Integration test** (Sezione 9.3–9.6): `POST /bookings` completo, advisory lock concorrente, pipeline middleware — con Testcontainers (Docker disponibile). Poi V2 (email Brevo, quando API key disponibile).
+> **Nota Docker session 2026-06-13**: DTO `PUT /admin/business-hours` e `PUT /admin/closures` wrappano la lista in `{ "days": [...] }` / `{ "closures": [...] }`. API porta **5022** (launchSettings.json).
 
 ### Come aggiornare questo file
 - Spunta `[x]` il task completato immediatamente dopo averlo finito e verificato con `dotnet build`.
@@ -170,3 +170,4 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-13 | Admin API | Sezione 6 completata: auth JWT (login per slug, AD-08) + AdminContextMiddleware; CRUD servizi (6.5-6.8), staff con servizi/orari (6.9-6.12), orari/chiusure (6.13-6.14), prenotazioni lista+filtri e PATCH stato (6.3-6.4). DTO admin (2.8). Invalidazione cache su mutazioni. Build 0 warning, 41 test verdi. **V1 funzionalmente completa** (manca solo validazione runtime + test integrazione, richiedono Docker). |
 | 2026-06-12 | CLI | Sezione 7 completata: CLI `TenantProvisioning` (modelli JSON, validazione, flusso transazionale, API key `bk_live_` + hash, admin Owner bcrypt, audit). Sample `barbershop-demo.json` + README. Solo CREATE (`--update` rinviato). Build 0 warning, 41 test verdi. |
 | 2026-06-12 | Hardening V2 | Chiusi TUTTI i rilievi review fattibili senza Docker: rate-limit per IP (R-14), tenant in ITenantContext (R-21), retry DB + execution strategy (R-12), 409 su DbUpdate (R-18), Result/factory cleanup (R-20/R-26), enrichers log (R-03), Scalar solo non-prod (R-13), closures tenant-local (R-19), liveness/readiness (R-23), cache API key + dati tenant (R-15/R-22), interceptor timestamp (R-27), dettaglio soft-deleted (R-28), analyzer+editorconfig+warnings-as-errors+MSB3277 (R-33). Deferiti (Docker/V2/processo): R-16, R-17, R-24, R-25, R-30, R-32. Build 0 warning, 41 test verdi. |
+| 2026-06-13 | Docker session | Validazione runtime V1 completa: migrazione applicata (11 tabelle, tipi verificati), provisioning `barbershop-demo` (API key + admin), tutti gli endpoint pubblici e admin validati a runtime. Algoritmo disponibilità: 34 slot/giorno, pausa/chiusure corrette. parallelSlots, advisory lock (409), cancellazione 403 verificati. Hardening: X-Trace-Id, CORS preflight 204, rate-limit 429, envelope 400. Nessun bug runtime. `DOCKER_SESSION_TODO.md` completato. |
