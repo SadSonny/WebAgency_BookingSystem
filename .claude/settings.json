@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(docker exec bookingsystem-postgres psql -U postgres -d bookingsystem -c \"\\\\dt\" 2>&1)",
+      "PowerShell(docker exec bookingsystem-postgres psql -U postgres -d bookingsystem -c \"SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name IN \\('bookings','services','staff'\\) AND column_name IN \\('status','buffer_position','role','staff_id','deleted_at','metadata','buffer_enabled','buffer_minutes'\\) ORDER BY table_name, column_name;\" 2>&1)",
+      "PowerShell(docker exec bookingsystem-postgres psql -U postgres -d bookingsystem -c \"SELECT table_name, column_name, data_type FROM information_schema.columns WHERE \\(column_name='metadata' OR column_name='day_of_week'\\) AND table_schema='public' ORDER BY table_name;\" 2>&1)",
+      "PowerShell(Start-Process -FilePath \"dotnet\" -ArgumentList \"run --project src/WebAgency_BookingSystem.Api --launch-profile http\" -WindowStyle Hidden -PassThru)",
+      "PowerShell(Start-Sleep -Seconds 8; try { $r = Invoke-WebRequest -Uri \"http://localhost:5000/api/v1/health\" -UseBasicParsing -TimeoutSec 5; \"Status: $\\($r.StatusCode\\) Body: $\\($r.Content\\)\" } catch { \"Error: $_\" })"
+    ]
+  }
+}
