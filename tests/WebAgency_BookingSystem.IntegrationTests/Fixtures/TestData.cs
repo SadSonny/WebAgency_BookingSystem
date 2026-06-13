@@ -23,6 +23,8 @@ public static class TestData
     public static readonly Guid ServiceMultiId  = new("20000000-0000-0000-0000-000000000001");
     // parallelSlots=1: per testare il lock advisory (solo una prenotazione per slot)
     public static readonly Guid ServiceSingleId = new("20000000-0000-0000-0000-000000000002");
+    // parallelSlots=1, BufferEnabled=true, BufferMinutes=15, BufferPosition=After: per testare il buffer (D-10)
+    public static readonly Guid ServiceBufferId = new("20000000-0000-0000-0000-000000000003");
     public static readonly Guid StaffId         = new("30000000-0000-0000-0000-000000000001");
 
     // Lunedì ≥ 7 giorni da oggi: giorno lavorativo, dentro i 30 visibili, ben oltre MinAdvanceHours=1h.
@@ -41,9 +43,13 @@ public static class TestData
     public static async Task SeedAsync(BookingSystemDbContext db)
     {
         // WHY: il container Testcontainers può essere riusato tra run consecutive (Ryuk non ancora attivo).
-        // Rileviamo il tenant già esistente per rendere il seed idempotente e non causare duplicate key violation.
+        // Rileviamo il tenant già esistente per rendere il seed idempotente. Se il tenant esiste ma mancano
+        // entità aggiunte in sessioni successive (es. ServiceBufferId), le inseriamo selettivamente.
         if (await db.Tenants.AnyAsync(t => t.Id == TenantId))
+        {
+            await EnsureLaterSeedAsync(db);
             return;
+        }
 
         var now = DateTimeOffset.UtcNow;
 
@@ -86,6 +92,14 @@ public static class TestData
                 Id = ServiceSingleId, TenantId = TenantId, Name = "Taglio Singolo",
                 DurationMinutes = 30, BasePrice = 15m, ParallelSlots = 1,
                 Active = true, DisplayOrder = 2, CreatedAt = now, UpdatedAt = now,
+            },
+            new Service
+            {
+                // WHY: servizio dedicato al test D-10 — buffer After 15min: finestra occupata = DurationMinutes + bufferAfter.
+                Id = ServiceBufferId, TenantId = TenantId, Name = "Taglio Buffer",
+                DurationMinutes = 30, BasePrice = 20m, ParallelSlots = 1,
+                BufferEnabled = true, BufferMinutes = 15, BufferPosition = BufferPosition.After,
+                Active = true, DisplayOrder = 3, CreatedAt = now, UpdatedAt = now,
             }
         );
 
@@ -97,7 +111,8 @@ public static class TestData
 
         db.StaffServices.AddRange(
             new StaffService { Id = Guid.NewGuid(), TenantId = TenantId, StaffId = StaffId, ServiceId = ServiceMultiId },
-            new StaffService { Id = Guid.NewGuid(), TenantId = TenantId, StaffId = StaffId, ServiceId = ServiceSingleId }
+            new StaffService { Id = Guid.NewGuid(), TenantId = TenantId, StaffId = StaffId, ServiceId = ServiceSingleId },
+            new StaffService { Id = Guid.NewGuid(), TenantId = TenantId, StaffId = StaffId, ServiceId = ServiceBufferId }
         );
 
         // Staff disponibile Lun-Ven 9-19 (coincide con gli orari del tenant per semplicità).
@@ -111,6 +126,28 @@ public static class TestData
             });
         }
 
+        await db.SaveChangesAsync();
+    }
+
+    // WHY: quando il container viene riusato, il tenant esiste già ma entità aggiunte in run successive
+    // (es. ServiceBufferId) possono mancare. Questo metodo le inserisce senza toccare il resto.
+    private static async Task EnsureLaterSeedAsync(BookingSystemDbContext db)
+    {
+        if (await db.Services.AnyAsync(s => s.Id == ServiceBufferId))
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+        db.Services.Add(new Service
+        {
+            Id = ServiceBufferId, TenantId = TenantId, Name = "Taglio Buffer",
+            DurationMinutes = 30, BasePrice = 20m, ParallelSlots = 1,
+            BufferEnabled = true, BufferMinutes = 15, BufferPosition = BufferPosition.After,
+            Active = true, DisplayOrder = 3, CreatedAt = now, UpdatedAt = now,
+        });
+        db.StaffServices.Add(new StaffService
+        {
+            Id = Guid.NewGuid(), TenantId = TenantId, StaffId = StaffId, ServiceId = ServiceBufferId,
+        });
         await db.SaveChangesAsync();
     }
 
