@@ -133,7 +133,10 @@ public static class TestData
     // (es. ServiceBufferId) possono mancare. Questo metodo le inserisce senza toccare il resto.
     private static async Task EnsureLaterSeedAsync(BookingSystemDbContext db)
     {
-        if (await db.Services.AnyAsync(s => s.Id == ServiceBufferId))
+        // WHY: IgnoreQueryFilters() necessario — il global filter su Services filtra per tenant_id;
+        // nel contesto del fixture non c'è ITenantContext impostato, quindi senza IgnoreQueryFilters
+        // il check restituisce false e la successiva INSERT causa duplicate key violation.
+        if (await db.Services.IgnoreQueryFilters().AnyAsync(s => s.Id == ServiceBufferId))
             return;
 
         var now = DateTimeOffset.UtcNow;

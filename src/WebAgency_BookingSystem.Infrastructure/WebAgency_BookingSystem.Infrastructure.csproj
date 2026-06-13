@@ -4,9 +4,10 @@
     <ProjectReference Include="..\WebAgency_BookingSystem.Core\WebAgency_BookingSystem.Core.csproj" />
   </ItemGroup>
 
-  <!-- Espone i tipi internal (es. BookingService) al progetto di unit test. -->
+  <!-- Espone i tipi internal (es. BookingService, IExpiredBookingCleaner) ai progetti di test. -->
   <ItemGroup>
     <InternalsVisibleTo Include="WebAgency_BookingSystem.UnitTests" />
+    <InternalsVisibleTo Include="WebAgency_BookingSystem.IntegrationTests" />
   </ItemGroup>
 
   <ItemGroup>

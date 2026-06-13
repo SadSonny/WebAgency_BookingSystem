@@ -1,15 +1,12 @@
-// [INTENT]: Job periodico che segna come NoShow le prenotazioni Confirmed scadute (data+ora nel passato
-// nel timezone del tenant). Gira come BackgroundService; intervallo configurabile via CleanupJob:IntervalMinutes
-// (default 60 minuti). Usa IServiceScopeFactory per creare un scope EF per ogni ciclo, evitando il riuso
-// di DbContext tra iterazioni (il DbContext è scoped, il BackgroundService è singleton).
+// [INTENT]: Job periodico che delega a IExpiredBookingCleaner la logica di cleanup, occupandosi solo
+// dello scheduling (intervallo configurabile via CleanupJob:IntervalMinutes, default 60 minuti).
+// Usa IServiceScopeFactory per creare uno scope scoped per ogni ciclo (il DbContext è scoped,
+// il BackgroundService è singleton).
 
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using WebAgency_BookingSystem.Core.Enums;
-using WebAgency_BookingSystem.Infrastructure.Persistence;
 
 namespace WebAgency_BookingSystem.Infrastructure.Services;
 
@@ -37,57 +34,22 @@ internal sealed class ExpiredBookingCleanupJob : BackgroundService
         // I cicli successivi rispettano il delay configurato.
         while (!stoppingToken.IsCancellationRequested)
         {
-            await RunCleanupAsync(stoppingToken);
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var cleaner = scope.ServiceProvider.GetRequiredService<IExpiredBookingCleaner>();
+                await cleaner.CleanupExpiredAsync(stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // shutdown normale — non è un errore
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Errore durante il cleanup prenotazioni scadute");
+            }
+
             await Task.Delay(_interval, stoppingToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        }
-    }
-
-    private async Task RunCleanupAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<BookingSystemDbContext>();
-            var utcNow = DateTimeOffset.UtcNow;
-
-            // WHY: IgnoreQueryFilters() è necessario perché il global query filter filtra per tenant_id
-            // tramite ITenantContext. Il cleanup è un'operazione cross-tenant priva di contesto tenant.
-            var candidates = await db.Bookings
-                .IgnoreQueryFilters()
-                .Include(b => b.Tenant)
-                .Where(b => b.Status == BookingStatus.Confirmed)
-                .ToListAsync(ct);
-
-            int count = 0;
-            foreach (var booking in candidates)
-            {
-                if (booking.Tenant is null) continue;
-
-                TimeZoneInfo tz = TimeZoneInfo.FindSystemTimeZoneById(booking.Tenant.Timezone);
-                DateTime tenantNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow.UtcDateTime, tz);
-                DateTime bookingMoment = booking.BookingDate.ToDateTime(booking.BookingTime);
-
-                if (bookingMoment >= tenantNow) continue;
-
-                booking.Status = BookingStatus.NoShow;
-                booking.NoShowMarkedAt = utcNow;
-                booking.UpdatedAt = utcNow;
-                count++;
-            }
-
-            if (count > 0)
-            {
-                await db.SaveChangesAsync(ct);
-                _logger.LogInformation("Cleanup prenotazioni: {Count} scadute segnate come NoShow", count);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // shutdown normale — non è un errore
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Errore durante il cleanup prenotazioni scadute");
         }
     }
 }
