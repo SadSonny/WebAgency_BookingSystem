@@ -274,3 +274,7 @@ app.MapPublicEndpoints();   // 5.1-5.8 (API key)
 app.MapAdminEndpoints();    // 6.x (JWT)
 
 app.Run();
+
+// WHY: espone il tipo generato dalle top-level statements ai test di integrazione che usano
+// WebApplicationFactory<Program>. Senza questa dichiarazione Program è internal e inaccessibile.
+public partial class Program { }
