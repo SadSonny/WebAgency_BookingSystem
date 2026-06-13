@@ -1,13 +1,13 @@
 # Development Plan — WebAgency BookingSystem
 
-## Stato: BUFFER TEST + CLEANUP JOB (2026-06-13)
+## Stato: BUFFER TEST + CLEANUP JOB + CLEANUP TEST (2026-06-13)
 
 > **V1 completamente validata + test suite implementata**: infra, Core, Infrastructure, middleware,
 > endpoint pubblici (5.1–5.8), Admin API (6.1–6.14), CLI provisioning (7.x).
-> Build verde (0 warning), **59 test verdi** (48 unit + 11 integration con Testcontainers).
+> Build verde (0 warning), **61 test verdi** (48 unit + 13 integration con Testcontainers).
 > Integration test: `POST /bookings` (5 casi), advisory lock concorrente, pipeline middleware (9.3–9.6),
-> **buffer After-15min (D-10, 9.7)**.
-> Feature: `ExpiredBookingCleanupJob` (BackgroundService) — segna NoShow le prenotazioni scadute ogni 60 min.
+> **buffer After-15min (D-10, 9.7)**, **cleanup job NoShow (9.8)**.
+> Feature: `ExpiredBookingCleanupJob` (BackgroundService) + `IExpiredBookingCleaner` (scoped, testabile).
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
@@ -120,6 +120,7 @@ Oppure: Railway deploy, admin UI.
 - [x] 9.5 Integration: advisory lock — **Task.WhenAll** due client concorrenti → 1×201 + 1×409 garantito
 - [x] 9.6 Integration: pipeline middleware — **4 test** (401, 403, X-Trace-Id, 400 malformed JSON)
 - [x] 9.7 Integration: buffer per servizio (D-10) — `BufferPosition=After, BufferMinutes=15`: 10:00→201, 10:30→409, 10:45→201
+- [x] 9.8 Integration: `IExpiredBookingCleaner` — prenotazione ieri → NoShow; prenotazione futura → invariata
 
 ---
 
@@ -178,3 +179,4 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-13 | Test | Sezione 9.3–9.6 completata: +7 unit test `TenantResolutionMiddleware`, +10 integration test Testcontainers (5 booking, 1 advisory lock concorrente, 4 pipeline). Suite totale: **58 test verdi** (48 unit + 10 integration). Infrastruttura: `BookingSystemFixture` (PostgreSqlContainer), `BookingSystemFactory` (WebApplicationFactory), `TestData.SeedAsync` idempotente, `IntegrationTestBase` con cleanup. |
 | 2026-06-13 | Test | 9.7 (D-10): `BufferTests` integration — ServizioBuffer (30min, After, 15min): 10:00→201, 10:30→409 (dentro buffer), 10:45→201 (fuori buffer). `SeedAsync` esteso con `EnsureLaterSeedAsync` per container reuse. Suite totale: **59 test verdi**. |
 | 2026-06-13 | Feature | `ExpiredBookingCleanupJob`: BackgroundService che ogni 60 min (configurabile `CleanupJob:IntervalMinutes`) segna NoShow le prenotazioni Confirmed scadute nel timezone del tenant. `IgnoreQueryFilters()` per operazione cross-tenant. Aggiunto `Microsoft.Extensions.Hosting.Abstractions 10.0.0`. Build 0 warning. |
+| 2026-06-13 | Test | 9.8: logica estratta in `IExpiredBookingCleaner` (scoped, testabile in isolation). `CleanupJobTests`: prenotazione ieri → NoShow, prenotazione futura → invariata. `InternalsVisibleTo` per IntegrationTests. Fix `EnsureLaterSeedAsync` con `IgnoreQueryFilters()`. Suite: **61 test verdi** (48 unit + 13 integration). |
