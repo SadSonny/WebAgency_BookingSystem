@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\WebAgency_BookingSystem.Api\WebAgency_BookingSystem.Api.csproj" />
     <ProjectReference Include="..\..\src\WebAgency_BookingSystem.Core\WebAgency_BookingSystem.Core.csproj" />
     <ProjectReference Include="..\..\src\WebAgency_BookingSystem.Infrastructure\WebAgency_BookingSystem.Infrastructure.csproj" />
   </ItemGroup>
