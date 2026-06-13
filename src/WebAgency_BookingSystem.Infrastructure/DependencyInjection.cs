@@ -72,6 +72,9 @@ public static class DependencyInjection
         // V1: email no-op (AD-06). In V2 sostituire con l'implementazione Brevo.
         services.AddScoped<IEmailService, EmailServiceStub>();
 
+        // Job periodico: segna NoShow le prenotazioni Confirmed scadute nel timezone del tenant.
+        services.AddHostedService<ExpiredBookingCleanupJob>();
+
         return services;
     }
 }
