@@ -31,6 +31,11 @@ public sealed class BookingSystemFactory : WebApplicationFactory<Program>
                 // WHY: limiti alti per evitare 429 durante le suite di test che battono molte richieste.
                 ["RateLimiting:PermitPerMinute"] = "1000",
                 ["RateLimiting:IpPermitPerMinute"] = "2000",
+                // WHY: email disattivata per default nei test (no-op) → deterministico, nessun tentativo SMTP.
+                // Chiave "flat" EMAIL_PROVIDER: EmailSettings la legge prima della sezione Email: di
+                // appsettings.Development.json (che imposterebbe Mailpit), quindi ha priorità. Il test
+                // dedicato la sovrascrive a "Mailpit" via WithWebHostBuilder.
+                ["EMAIL_PROVIDER"] = "None",
             });
         });
 
