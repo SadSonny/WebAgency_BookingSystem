@@ -1,7 +1,8 @@
 // [INTENT]: Orchestrazione delle prenotazioni pubbliche (IBookingService): creazione ATOMICA con advisory
 // lock PostgreSQL (previene doppie prenotazioni sullo stesso slot), consultazione e disdetta via token.
 // La verifica di disponibilità dentro la transazione riusa AvailabilityCalculator per coerenza con l'endpoint
-// di availability. Le email post-commit usano lo stub no-op in V1 (AD-06).
+// di availability. Le email post-commit sono inviate in fire-and-forget tramite il provider configurato
+// (AD-10), così non aggiungono latenza né possono compromettere l'atomicità del flusso di prenotazione.
 
 using System.Globalization;
 using System.Security.Cryptography;
@@ -194,11 +195,18 @@ internal sealed class BookingService : IBookingService
             "Prenotazione creata {BookingId} per service {ServiceId} staff {StaffId} il {Date} alle {Time}",
             createdBooking.Id, request.ServiceId, request.StaffId, date, time);
 
-        // Post-commit (FUORI dall'execution strategy): in V1 l'email è no-op. In V2 valutare outbox/fire-and-forget.
-        await _email.SendBookingConfirmationAsync(createdBooking, ct);
+        // Post-commit, FUORI dall'execution strategy e in fire-and-forget (8.5): l'invio è accessorio e non
+        // deve aggiungere latenza alla risposta. Idratiamo le navigation richieste dal renderer con le entità
+        // già caricate, così l'invio in background NON tocca il DbContext (disposto a fine richiesta).
+        createdBooking.Tenant = tenant;
+        createdBooking.Service = service;
+
+        FireAndForget(_email.SendBookingConfirmationAsync(createdBooking, CancellationToken.None),
+            createdBooking.Id, "conferma prenotazione");
         if (string.Equals(tenant.NotificationMethod, "email", StringComparison.OrdinalIgnoreCase))
         {
-            await _email.SendOwnerNotificationAsync(createdBooking, ct);
+            FireAndForget(_email.SendOwnerNotificationAsync(createdBooking, CancellationToken.None),
+                createdBooking.Id, "notifica titolare");
         }
 
         return outcome;
@@ -277,7 +285,11 @@ internal sealed class BookingService : IBookingService
 
         _logger.LogInformation("Prenotazione {BookingId} disdetta dal cliente", booking.Id);
 
-        await _email.SendCancellationConfirmationAsync(booking, ct);
+        // Fire-and-forget (8.5): la conferma di disdetta è accessoria. Service/Staff sono già caricati dal
+        // repository (GetByIdAndTokenAsync); idratiamo il Tenant per il renderer.
+        booking.Tenant = tenant;
+        FireAndForget(_email.SendCancellationConfirmationAsync(booking, CancellationToken.None),
+            booking.Id, "conferma disdetta");
 
         return Result.Success(new CancelBookingResponse(booking.Id, booking.Status.ToApiString(), "Prenotazione disdetta con successo."));
     }
@@ -368,6 +380,17 @@ internal sealed class BookingService : IBookingService
         byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return BitConverter.ToInt64(bytes, 0);
     }
+
+    // WHY (8.5): invio email fire-and-forget. Non attendiamo il Task (zero latenza sul flusso) e usiamo
+    // CancellationToken.None così la fine della richiesta non annulla l'invio. Il provider già non propaga
+    // eccezioni; osserviamo comunque eventuali fault per evitare UnobservedTaskException e per tracciarli.
+    private void FireAndForget(Task sendTask, Guid bookingId, string kind) =>
+        _ = sendTask.ContinueWith(
+            t => _logger.LogError(t.Exception,
+                "Invio email '{Kind}' fallito (fire-and-forget). BookingId={BookingId}", kind, bookingId),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 
     // Risposta neutra: non rivela se l'id esiste con token errato (sicurezza, spec 03).
     private static Result<T> NeutralNotFound<T>() =>

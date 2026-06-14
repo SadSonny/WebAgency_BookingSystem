@@ -9,6 +9,8 @@ namespace WebAgency_BookingSystem.Core.Abstractions.Services;
 /// <summary>
 /// Invia le notifiche email legate al ciclo di vita di una prenotazione. Le implementazioni non devono
 /// lanciare eccezioni che impattino il flusso di prenotazione (l'invio è accessorio, non transazionale).
+/// I chiamanti devono valorizzare le proprietà di navigazione richieste dai template
+/// (<see cref="Booking.Tenant"/>, <see cref="Booking.Service"/>, ed eventuale <see cref="Booking.Staff"/>).
 /// </summary>
 public interface IEmailService
 {
