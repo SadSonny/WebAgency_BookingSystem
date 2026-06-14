@@ -69,13 +69,45 @@ public static class DependencyInjection
         services.AddScoped<IAvailabilityService, AvailabilityService>();
         services.AddScoped<IBookingService, BookingService>();
 
-        // V1: email no-op (AD-06). In V2 sostituire con l'implementazione Brevo.
-        services.AddScoped<IEmailService, EmailServiceStub>();
+        // Email (V2): provider selezionato per ambiente (AD-10). Renderer condiviso (contenuto) +
+        // provider di trasporto. Mailpit in dev, Brevo in prod, None → stub no-op (default sicuro).
+        AddEmail(services, configuration);
 
         // Logica cleanup (scoped) + job scheduling (singleton BackgroundService).
         services.AddScoped<IExpiredBookingCleaner, ExpiredBookingCleaner>();
         services.AddHostedService<ExpiredBookingCleanupJob>();
 
         return services;
+    }
+
+    // WHY: il renderer è stateless → singleton. Il provider di trasporto è scoped come gli altri servizi
+    // applicativi. La selezione avviene una sola volta all'avvio in base a Email:Provider (AD-10).
+    private static void AddEmail(IServiceCollection services, IConfiguration configuration)
+    {
+        EmailSettings settings = EmailSettings.FromConfiguration(configuration);
+        services.AddSingleton(settings);
+        services.AddSingleton<IEmailTemplateRenderer, EmailTemplateRenderer>();
+
+        switch (settings.Provider)
+        {
+            case EmailProvider.Mailpit:
+                services.AddScoped<IEmailService, MailpitEmailService>();
+                break;
+
+            case EmailProvider.Brevo:
+                // HttpClient tipizzato: BaseAddress + header api-key condivisi da tutte le chiamate.
+                services.AddHttpClient<BrevoEmailClient>(client =>
+                {
+                    client.BaseAddress = new Uri("https://api.brevo.com/");
+                    client.DefaultRequestHeaders.Add("api-key", settings.BrevoApiKey);
+                    client.DefaultRequestHeaders.Add("accept", "application/json");
+                });
+                services.AddScoped<IEmailService>(sp => sp.GetRequiredService<BrevoEmailClient>());
+                break;
+
+            default:
+                services.AddScoped<IEmailService, EmailServiceStub>();
+                break;
+        }
     }
 }

@@ -41,6 +41,16 @@ services:
     volumes:
       - pgadmin-data:/var/lib/pgadmin
 
+  mailpit:
+    # WHY (AD-10): provider email di sviluppo. Cattura le email inviate via SMTP (porta 1025) e le mostra
+    # nella web UI (porta 8025), senza recapitarle a destinatari reali → nessun mittente da verificare.
+    image: axllent/mailpit:latest
+    container_name: bookingsystem-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP (l'API legge SMTP_HOST/SMTP_PORT)
+      - "8025:8025"  # Web UI: http://localhost:8025
+
 volumes:
   postgres-data:
   pgadmin-data:
