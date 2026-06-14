@@ -144,6 +144,29 @@
 
 ---
 
+## Hardening Produzione (da pianificare)
+
+> Rilievi emersi dall'analisi di production-readiness (2026-06-14). Nessuno bloccante; da affrontare prima
+> di scalare il numero di tenant / del deploy definitivo. Riferimenti a `CODE_REVIEW_FINDINGS.md`.
+
+- [ ] **PH-1 — CORS per-tenant** (origini derivate dal `siteUrl` dei tenant, non lista globale `Cors:AllowedOrigins`).
+  Oggi le origini ammesse sono una lista unica condivisa: onboarding di un nuovo sito richiede modifica config.
+  Approccio consigliato: policy CORS dinamica che ammette un `Origin` se combacia con il `SiteUrl` di un tenant
+  attivo (set cache-ato, invalidato sulle mutazioni tenant). Nota: il preflight OPTIONS non porta `X-Api-Key`,
+  quindi la validazione non può essere per-chiave ma sull'unione degli origin noti.
+- [ ] **PH-2 — Advisory lock con `parallelSlots > 1` (R-17).** La chiave `(tenant,service,date,time)` serializza
+  prenotazioni legittime concorrenti su slot multi-capienza → possibile 409 spurio. Ora testabile con
+  Testcontainers: aggiungere test di concorrenza dedicato e affinare la strategia (es. lock per-posto).
+- [ ] **PH-3 — Email outbox durevole (R-25).** L'invio è già fire-and-forget post-commit (8.5), ma senza
+  retry/persistenza: se Brevo è irraggiungibile l'email è persa (solo loggata). Valutare pattern outbox per
+  garanzie di consegna.
+- [ ] **PH-4 — Segreti dev fuori da `appsettings.Development.json` (R-16).** Spostare `JWT_SECRET`/password DB
+  su `dotnet user-secrets` (solo abitudine dev; i valori attuali sono locali non sensibili).
+- [ ] **PH-5 — Minori accettati**: edge DST nei confronti orari (R-32, ±1h 2 giorni/anno → eventuale fix con
+  `DateTimeOffset` + test) e `DbContext` pooling (R-24, valutare solo se il profiling lo giustifica).
+
+---
+
 ## V3 — Dashboard Interna Dev (RIMANDATA)
 
 > **Stato: pianificazione differita.** Non si parte finché V2 (email) e deploy non sono stabili.
