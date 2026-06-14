@@ -10,9 +10,11 @@
 > Build `dotnet build` verde (0 warning, analyzer + warnings-as-errors). 41 unit test verdi.
 > Tutti gli endpoint validati a runtime con Docker. Nessun bug trovato.
 
-**Fase attuale:** V1 completamente validata (2026-06-13, con Docker).
+**Fase attuale:** V1 validata + **V2 email completata** (2026-06-14). 76 test verdi (62 unit + 14 integration).
 
-**Prossimo task:** Integration test con Testcontainers (9.3–9.6): advisory lock concorrente, pipeline middleware. Poi V2 (email Brevo quando API key disponibile). Dubbi/decisioni aperte in `DUBBI_SESSIONE.md` (D-01…D-15).
+**Email (Sezione 8, AD-10/AD-11):** provider per ambiente via `Email:Provider` — **Mailpit in dev** (SMTP locale, cattura, zero verifica mittente; UI `http://localhost:8025`), **Brevo in prod** (REST). Template HTML inline italiani (`EmailTemplateRenderer`), invio fire-and-forget post-commit. Admin UI **non** prevista (AD-09); unica UI futura = dashboard interna dev (Sezione 10, rimandata).
+
+**Prossimo task:** Railway deploy (impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato). Poi 8.7 (branding template). Dubbi/decisioni aperte in `DUBBI_SESSIONE.md` (D-01…D-15).
 
 **Note runtime (da `DOCKER_SESSION_TODO.md`):**
 - API porta **5022** (launchSettings.json profilo `http`)

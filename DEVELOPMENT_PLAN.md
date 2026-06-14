@@ -1,18 +1,23 @@
 # Development Plan — WebAgency BookingSystem
 
-## Stato: BUFFER TEST + CLEANUP JOB + CLEANUP TEST (2026-06-13)
+## Stato: EMAIL V2 COMPLETATA (2026-06-14)
 
-> **V1 completamente validata + test suite implementata**: infra, Core, Infrastructure, middleware,
-> endpoint pubblici (5.1–5.8), Admin API (6.1–6.14), CLI provisioning (7.x).
-> Build verde (0 warning), **61 test verdi** (48 unit + 13 integration con Testcontainers).
-> Integration test: `POST /bookings` (5 casi), advisory lock concorrente, pipeline middleware (9.3–9.6),
-> **buffer After-15min (D-10, 9.7)**, **cleanup job NoShow (9.8)**.
-> Feature: `ExpiredBookingCleanupJob` (BackgroundService) + `IExpiredBookingCleaner` (scoped, testabile).
+> **V1 validata + V2 email completata**: infra, Core, Infrastructure, middleware, endpoint pubblici (5.1–5.8),
+> Admin API (6.1–6.14), CLI provisioning (7.x), **email transazionale (Sezione 8)**.
+> Build verde (0 warning), **76 test verdi** (62 unit + 14 integration con Testcontainers).
+> Email (AD-10/AD-11): renderer HTML inline + provider per ambiente (**Mailpit dev** / **Brevo prod**), invio
+> fire-and-forget post-commit. Smoke test end-to-end con container Mailpit.
+> Feature precedenti: `ExpiredBookingCleanupJob` + `IExpiredBookingCleaner`, buffer per-servizio (D-10).
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**→ V2** (email Brevo): `IEmailService` da stub a implementazione reale quando API key disponibile.
-Oppure: Railway deploy, admin UI.
+**Sezione 8 (email) COMPLETATA** (2026-06-14): Mailpit in dev, Brevo in prod, fire-and-forget, 76 test verdi.
+**→ Prossimo:** Railway deploy (impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato). Poi 8.7 (branding template) quando si definisce la grafica. **NON** è prevista una Admin UI (vedi nota sotto).
+
+> **Direzione prodotto (2026-06-14):** il sistema è un **backend API-only** pensato perché siti web esterni
+> dei tenant si colleghino via API. **Non si sviluppa una Admin UI**: la gestione resta via API admin + CLI.
+> L'unica UI prevista in futuro è una **dashboard interna per i dev** (observability cross-tenant: logging,
+> volumi prenotazioni per cliente, ecc.) — pianificata nella **Sezione 10**, ma **rimandata**.
 > **Nota Docker session 2026-06-13**: DTO `PUT /admin/business-hours` e `PUT /admin/closures` wrappano la lista in `{ "days": [...] }` / `{ "closures": [...] }`. API porta **5022** (launchSettings.json).
 
 ### Come aggiornare questo file
@@ -106,11 +111,24 @@ Oppure: Railway deploy, admin UI.
 > Prerequisito: Brevo API key attiva.
 
 ### 8. Email Transazionale
-- [ ] 8.1 `BrevoEmailClient` (HTTP client per REST API Brevo)
-- [ ] 8.2 Template HTML: conferma prenotazione cliente
-- [ ] 8.3 Template HTML: notifica nuova prenotazione titolare
-- [ ] 8.4 Template HTML: conferma disdetta cliente
-- [ ] 8.5 Collegamento fire-and-forget post-commit nei servizi booking
+
+> **Strategia provider (AD-10):** `IEmailService` selezionato per ambiente via `Email:Provider`.
+> **Dev → Mailpit** (SMTP locale, zero verifica, cattura in UI); **Prod → Brevo** (REST, dominio verificato).
+> I template sono **HTML inline renderizzati nel codice** (AD-11): unico approccio che dà parità dev/prod
+> (i template gestiti da Brevo non funzionerebbero con Mailpit). Il rendering vive in un componente condiviso
+> riusato da entrambi i provider (SRP: provider = trasporto, renderer = contenuto).
+
+- [x] 8.0 Config `Email:Provider` (`Mailpit`|`Brevo`|`None`) + `EmailSettings`; switch in DI (`AddInfrastructure.AddEmail`)
+- [x] 8.1a `IEmailTemplateRenderer` + `EmailMessage` (subject + HTML + testo), rendering inline italiano
+- [x] 8.1b `MailpitEmailService` (SMTP via MailKit 4.17.0) — dev, nessuna verifica mittente
+- [x] 8.1c `BrevoEmailClient` (HttpClient tipizzato, `POST /v3/smtp/email`) — prod
+- [x] 8.2 Template: conferma prenotazione cliente
+- [x] 8.3 Template: notifica nuova prenotazione titolare (gated su `Tenant.NotificationMethod == "email"`)
+- [x] 8.4 Template: conferma disdetta cliente
+- [x] 8.5 Invio fire-and-forget post-commit nei servizi booking (era `await` inline in `BookingService`)
+- [x] 8.6 `docker-compose.yml`: servizio `mailpit` (porte 1025 SMTP / 8025 UI)
+- [ ] 8.7 **(RIMANDATO)** Revisione branding template: layout V1 è sobrio/neutro; rivedere con logo,
+  colori e footer GDPR definitivi (eventualmente brandizzabile per-tenant) prima del go-live commerciale.
 
 ### 9. Test Suite
 - [x] 9.1 Unit: disponibilità — **`AvailabilityCalculator` (23 test) + `HoursResolver` (9 test)** verdi. Coprono granularità, bordi chiusura, pausa, anticipo/passato, capienza parallelSlots/staff, buffer (D-10), `IsSlotAvailable`, chiusure, giorno chiuso, precedenza orari staff/tenant.
@@ -121,6 +139,27 @@ Oppure: Railway deploy, admin UI.
 - [x] 9.6 Integration: pipeline middleware — **4 test** (401, 403, X-Trace-Id, 400 malformed JSON)
 - [x] 9.7 Integration: buffer per servizio (D-10) — `BufferPosition=After, BufferMinutes=15`: 10:00→201, 10:30→409, 10:45→201
 - [x] 9.8 Integration: `IExpiredBookingCleaner` — prenotazione ieri → NoShow; prenotazione futura → invariata
+- [x] 9.9 Unit: email — `EmailTemplateRendererTests` (8: destinatari, dati chiave, gating titolare, staff/prezzo condizionali, HTML-encoding) + `EmailSettingsTests` (6: provider, precedenza env>section, default SMTP, validazione Brevo)
+- [x] 9.10 Integration: smoke Mailpit — `POST /bookings` → email di conferma catturata via HTTP API del container (`MailpitEmailTests`)
+
+---
+
+## V3 — Dashboard Interna Dev (RIMANDATA)
+
+> **Stato: pianificazione differita.** Non si parte finché V2 (email) e deploy non sono stabili.
+> NON è una Admin UI per i tenant (quella non esiste, vedi AD-09). È uno strumento **interno** per noi dev,
+> a sola lettura, per osservare il sistema cross-tenant. Da definire meglio prima di stimare/implementare.
+
+### 10. Dashboard Observability Interna
+- [ ] 10.0 **Definizione** (design doc): scopo, utenti (solo dev), dati esposti, modello di accesso/segretezza,
+  hosting (stessa app vs progetto separato), stack frontend. **Prerequisito a ogni 10.x.**
+- [ ] 10.1 Endpoint/area protetta separata dalle API tenant (auth dedicata dev, non il JWT admin tenant)
+- [ ] 10.2 Metriche cross-tenant: volumi prenotazioni per tenant/cliente, stati (Confirmed/Cancelled/NoShow)
+- [ ] 10.3 Vista logging/observability (correlazione `X-Trace-Id`, errori, rate-limit)
+- [ ] 10.4 UI minima read-only (stack da decidere in 10.0)
+
+> Decisioni aperte per la 10.0: dove vivono i dati di analytics (query dirette vs proiezione/aggregati),
+> isolamento dalla superficie API pubblica, e se la UI sia server-rendered minimale o SPA separata.
 
 ---
 
@@ -136,6 +175,9 @@ Oppure: Railway deploy, admin UI.
 | AD-06 | `IEmailService` no-op in V1 | Email Brevo in V2; interfaccia stabile permette swap senza modifiche ai caller | 2026-06-11 |
 | AD-07 | pgAdmin incluso in Docker Compose | Ispezione visiva DB durante sviluppo, zero installazioni extra | 2026-06-11 |
 | AD-08 | JWT admin con `user_id` + `tenant_id` + `role` nel payload | Permette autorizzazione scoped per tenant senza query DB ad ogni richiesta | 2026-06-11 |
+| AD-09 | **Nessuna Admin UI**; prodotto API-only per integrazione di siti esterni | La gestione tenant avviene via Admin API + CLI. L'unica UI prevista è una dashboard interna dev (Sez. 10), rimandata | 2026-06-14 |
+| AD-10 | Email per ambiente: **Mailpit (dev) + Brevo (prod)** via `Email:Provider` | Mailpit elimina la verifica mittente in sviluppo (cattura, non consegna); Brevo per la consegna reale in prod. Swap via DI, `IEmailService` invariato | 2026-06-14 |
+| AD-11 | Template email **HTML inline nel codice** (no template gestiti da Brevo) | Unico approccio con parità dev/prod: i template Brevo non sarebbero renderizzabili da Mailpit. Versionati nel repo, testabili | 2026-06-14 |
 
 ---
 
@@ -179,4 +221,6 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-13 | Test | Sezione 9.3–9.6 completata: +7 unit test `TenantResolutionMiddleware`, +10 integration test Testcontainers (5 booking, 1 advisory lock concorrente, 4 pipeline). Suite totale: **58 test verdi** (48 unit + 10 integration). Infrastruttura: `BookingSystemFixture` (PostgreSqlContainer), `BookingSystemFactory` (WebApplicationFactory), `TestData.SeedAsync` idempotente, `IntegrationTestBase` con cleanup. |
 | 2026-06-13 | Test | 9.7 (D-10): `BufferTests` integration — ServizioBuffer (30min, After, 15min): 10:00→201, 10:30→409 (dentro buffer), 10:45→201 (fuori buffer). `SeedAsync` esteso con `EnsureLaterSeedAsync` per container reuse. Suite totale: **59 test verdi**. |
 | 2026-06-13 | Feature | `ExpiredBookingCleanupJob`: BackgroundService che ogni 60 min (configurabile `CleanupJob:IntervalMinutes`) segna NoShow le prenotazioni Confirmed scadute nel timezone del tenant. `IgnoreQueryFilters()` per operazione cross-tenant. Aggiunto `Microsoft.Extensions.Hosting.Abstractions 10.0.0`. Build 0 warning. |
+| 2026-06-14 | Email V2 | **Sezione 8 completata.** Sottosistema email multi-provider (AD-10/AD-11): renderer template HTML inline italiani (conferma/notifica titolare/disdetta), `MailpitEmailService` (SMTP/MailKit, dev) + `BrevoEmailClient` (REST, prod) dietro `RenderedEmailService`, switch per ambiente via `Email:Provider`. Invio fire-and-forget post-commit in `BookingService`. Mailpit nel docker-compose. Test: +14 unit (renderer+settings) e +1 integration smoke Mailpit. **76 test verdi** (62 unit + 14 integration), build 0 warning. Branding template rimandato (8.7). |
+| 2026-06-14 | Direzione | Confermato prodotto **API-only senza Admin UI** (AD-09). Aggiunta **Sezione 10** (dashboard interna dev per observability cross-tenant), rimandata. Avvio V2 email Brevo. |
 | 2026-06-13 | Test | 9.8: logica estratta in `IExpiredBookingCleaner` (scoped, testabile in isolation). `CleanupJobTests`: prenotazione ieri → NoShow, prenotazione futura → invariata. `InternalsVisibleTo` per IntegrationTests. Fix `EnsureLaterSeedAsync` con `IgnoreQueryFilters()`. Suite: **61 test verdi** (48 unit + 13 integration). |
