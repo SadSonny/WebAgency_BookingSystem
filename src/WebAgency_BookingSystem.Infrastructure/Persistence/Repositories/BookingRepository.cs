@@ -49,6 +49,7 @@ internal sealed class BookingRepository : IBookingRepository
             .Where(b => b.TenantId == _tenantContext.TenantId)
             .Include(b => b.Service)
             .Include(b => b.Staff)
+            .Include(b => b.Items.OrderBy(i => i.Sequence)).ThenInclude(i => i.Service)
             .FirstOrDefaultAsync(b => b.Id == bookingId && b.CancellationToken == token, ct);
 
     public async Task AddAsync(Booking booking, CancellationToken ct = default) =>

@@ -9,6 +9,8 @@ namespace WebAgency_BookingSystem.Core.Dtos.Public;
 /// </summary>
 /// <param name="CanCancel">True se ancora disdicibile (confermata e entro il preavviso minimo).</param>
 /// <param name="CancellationDeadline">Termine ultimo per disdire, <c>yyyy-MM-ddTHH:mm:ss</c> locale del tenant.</param>
+/// <param name="Service">Servizio principale (compatibilità: primo della sequenza).</param>
+/// <param name="Services">Tutti i servizi dell'appuntamento in ordine (T1.3); per il singolo contiene un elemento.</param>
 public sealed record BookingDetailResponse(
     Guid BookingId,
     string Status,
@@ -19,7 +21,8 @@ public sealed record BookingDetailResponse(
     BookingStaffRef? Staff,
     BookingCustomerRef Customer,
     bool CanCancel,
-    string CancellationDeadline);
+    string CancellationDeadline,
+    IReadOnlyList<BookingServiceRef> Services);
 
 /// <summary>Riferimento sintetico al servizio prenotato.</summary>
 public sealed record BookingServiceRef(Guid Id, string Name);

@@ -73,11 +73,28 @@ internal sealed class BookingService : IBookingService
             return Error.Validation("validation_error", "Formato orario non valido. Usare HH:mm.");
         }
 
-        Service? service = await _services.GetActiveByIdAsync(request.ServiceId, ct);
-        if (service is null)
+        Service? primaryService = await _services.GetActiveByIdAsync(request.ServiceId, ct);
+        if (primaryService is null)
         {
             return Error.NotFound("not_found", "Servizio non trovato o non attivo.");
         }
+
+        // T1.3: appuntamento multi-servizio. Servizi in ordine (principale + aggiuntivi), svolti CONSECUTIVAMENTE
+        // dallo stesso operatore. Durata/prezzo totali = somma. La verifica "operatore esegue tutti" è in ResolveStaffAsync.
+        var services = new List<Service> { primaryService };
+        foreach (Guid extraId in request.AdditionalServiceIds ?? [])
+        {
+            Service? extra = await _services.GetActiveByIdAsync(extraId, ct);
+            if (extra is null)
+            {
+                return Error.Validation("validation_error", $"Servizio aggiuntivo non trovato o non attivo: {extraId}.");
+            }
+
+            services.Add(extra);
+        }
+
+        List<Guid> allServiceIds = services.Select(s => s.Id).ToList();
+        ServiceSlotConfig config = CombinedConfig(services);
 
         if (request.StaffId is Guid staffId)
         {
@@ -85,11 +102,6 @@ internal sealed class BookingService : IBookingService
             if (staff is null)
             {
                 return Error.Validation("validation_error", "Staff non trovato o non attivo.");
-            }
-
-            if (!await _staff.ExecutesServiceAsync(staffId, request.ServiceId, ct))
-            {
-                return Error.Validation("validation_error", "Lo staff selezionato non esegue il servizio richiesto.");
             }
         }
 
@@ -135,17 +147,29 @@ internal sealed class BookingService : IBookingService
                     "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova."));
             }
 
-            // T1.2: determina l'operatore effettivo. Se richiesto, lo valida; se "qualsiasi", auto-assegna un
-            // operatore qualificato libero; se il servizio non ha operatori, resta null (capacità a parallelSlots).
-            Result<Guid?> staffResolution = await ResolveStaffAsync(tenant, service, request.StaffId, date, time, tenantNow, ct);
+            // T1.2/T1.3: determina l'operatore effettivo (uno solo per l'intero appuntamento). Se richiesto lo
+            // valida (deve eseguire TUTTI i servizi); se "qualsiasi" auto-assegna un operatore qualificato libero
+            // per il blocco continuo; se il servizio non ha operatori, resta null (capacità a parallelSlots).
+            Result<Guid?> staffResolution = await ResolveStaffAsync(
+                tenant, config, request.ServiceId, allServiceIds, request.StaffId, date, time, tenantNow, ct);
             if (staffResolution.IsFailure)
             {
                 return Result.Failure<CreateBookingResponse>(staffResolution.Error);
             }
 
             Guid? effectiveStaffId = staffResolution.Value;
-            decimal? price = await ResolvePriceAsync(service, effectiveStaffId, ct);
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+
+            // Prezzo per servizio (snapshot, con eventuale override per operatore) → totale = somma.
+            var itemPrices = new List<decimal?>(services.Count);
+            foreach (Service svc in services)
+            {
+                itemPrices.Add(await ResolvePriceAsync(svc, effectiveStaffId, ct));
+            }
+
+            decimal? totalPrice = itemPrices.Any(p => p is not null)
+                ? itemPrices.Sum(p => p ?? 0m)
+                : null;
 
             var booking = new Booking
             {
@@ -155,7 +179,7 @@ internal sealed class BookingService : IBookingService
                 StaffId = effectiveStaffId,
                 BookingDate = date,
                 BookingTime = time,
-                DurationMinutes = service.DurationMinutes,
+                DurationMinutes = config.DurationMinutes,
                 CustomerName = request.Customer.Name,
                 CustomerPhone = request.Customer.Phone,
                 CustomerEmail = request.Customer.Email,
@@ -164,9 +188,24 @@ internal sealed class BookingService : IBookingService
                 GdprConsentAt = nowUtc,
                 Status = BookingStatus.Confirmed,
                 CancellationToken = Guid.NewGuid(),
-                PriceAtBooking = price,
+                PriceAtBooking = totalPrice,
                 // CreatedAt/UpdatedAt valorizzati dal TimestampInterceptor (R-27).
             };
+
+            // Voci dell'appuntamento (T1.3): una per servizio, in ordine.
+            for (int i = 0; i < services.Count; i++)
+            {
+                booking.Items.Add(new BookingItem
+                {
+                    Id = Guid.NewGuid(),
+                    BookingId = booking.Id,
+                    TenantId = tenantId,
+                    ServiceId = services[i].Id,
+                    Sequence = i,
+                    DurationMinutes = services[i].DurationMinutes,
+                    PriceAtBooking = itemPrices[i],
+                });
+            }
 
             // WHY (PH-3): accodiamo le email nella OUTBOX dentro la STESSA transazione del booking. Se il commit
             // riesce, le email sono garantite in coda (inviate dal dispatcher con retry); se fallisce (o l'execution
@@ -174,8 +213,10 @@ internal sealed class BookingService : IBookingService
             // né doppioni. Le navigation servono SOLO al renderer: le valorizziamo, renderizziamo, poi le azzeriamo
             // PRIMA di tracciare il booking, perché tenant/service vengono dalla cache AsNoTracking (detached) e EF
             // tenterebbe di persistirli (errore di concorrenza/insert). La riga outbox porta solo gli scalari.
+            // Per il rendering email usiamo il servizio principale (e la durata totale già su booking); per i
+            // combo multi-servizio l'elenco completo è un'evoluzione del template (vedi nota T1.3).
             booking.Tenant = tenant;
-            booking.Service = service;
+            booking.Service = primaryService;
             _outbox.EnqueueBookingConfirmation(booking);
             if (string.Equals(tenant.NotificationMethod, "email", StringComparison.OrdinalIgnoreCase))
             {
@@ -248,6 +289,17 @@ internal sealed class BookingService : IBookingService
 
         bool canCancel = booking.Status == BookingStatus.Confirmed && DateTimeOffset.UtcNow < deadlineInstant;
 
+        // T1.3: elenco completo dei servizi dell'appuntamento (ordine di sequenza). Fallback al servizio
+        // principale per prenotazioni create prima dell'introduzione degli item.
+        List<BookingServiceRef> services = booking.Items
+            .OrderBy(i => i.Sequence)
+            .Select(i => new BookingServiceRef(i.ServiceId, i.Service?.Name ?? string.Empty))
+            .ToList();
+        if (services.Count == 0)
+        {
+            services.Add(new BookingServiceRef(booking.ServiceId, booking.Service?.Name ?? string.Empty));
+        }
+
         var response = new BookingDetailResponse(
             booking.Id,
             booking.Status.ToApiString(),
@@ -258,7 +310,8 @@ internal sealed class BookingService : IBookingService
             booking.StaffId is Guid sid ? new BookingStaffRef(sid, booking.Staff?.Name ?? string.Empty) : null,
             new BookingCustomerRef(booking.CustomerName, booking.CustomerEmail),
             canCancel,
-            deadline.ToString("yyyy-MM-ddTHH:mm:ss"));
+            deadline.ToString("yyyy-MM-ddTHH:mm:ss"),
+            services);
 
         return Result.Success(response);
     }
@@ -323,7 +376,8 @@ internal sealed class BookingService : IBookingService
     // DETERMINA l'operatore effettivo (T1.2). Restituisce lo staffId da assegnare: l'id richiesto se valido,
     // un operatore qualificato libero se "qualsiasi", o null se il servizio non ha operatori (parallelSlots).
     private async Task<Result<Guid?>> ResolveStaffAsync(
-        Tenant tenant, Service service, Guid? requestedStaffId, DateOnly date, TimeOnly time, DateTime tenantNow, CancellationToken ct)
+        Tenant tenant, ServiceSlotConfig config, Guid primaryServiceId, IReadOnlyList<Guid> allServiceIds,
+        Guid? requestedStaffId, DateOnly date, TimeOnly time, DateTime tenantNow, CancellationToken ct)
     {
         // Regole staff-indipendenti (PH-5: anticipo su istanti assoluti, DST-corretto).
         DateTimeOffset bookingInstant = TenantTime.ToInstant(date, time, tenant.Timezone);
@@ -340,17 +394,21 @@ internal sealed class BookingService : IBookingService
         IReadOnlyList<TenantBusinessHours> businessHours = await _tenants.GetBusinessHoursAsync(tenant.Id, ct);
         IReadOnlyList<TenantSpecialClosure> closures = await _tenants.GetActiveSpecialClosuresAsync(tenant.Id, date, ct);
         var hoursByDay = businessHours.ToDictionary(h => h.DayOfWeek);
-        ServiceSlotConfig config = ServiceSlotConfig.From(service);
 
-        // Operatore specifico richiesto: validazione con messaggi di errore mirati.
+        // Operatore specifico richiesto: deve eseguire TUTTI i servizi dell'appuntamento (T1.3).
         if (requestedStaffId is Guid sid)
         {
-            Result check = await CheckSpecificStaffAsync(sid, service, date, time, hoursByDay, closures, config, ct);
+            if (!await ExecutesAllAsync(sid, allServiceIds, ct))
+            {
+                return Error.Validation("validation_error", "Lo staff selezionato non esegue tutti i servizi richiesti.");
+            }
+
+            Result check = await CheckSpecificStaffAsync(sid, primaryServiceId, date, time, hoursByDay, closures, config, ct);
             return check.IsFailure ? Result.Failure<Guid?>(check.Error) : Result.Success<Guid?>(sid);
         }
 
-        // "Qualsiasi operatore": gli operatori qualificati sono quelli che eseguono il servizio.
-        IReadOnlyList<Staff> qualified = await _staff.GetActiveByServiceAsync(service.Id, ct);
+        // "Qualsiasi operatore": qualificati = chi esegue il servizio principale (filtrato poi su TUTTI i servizi).
+        IReadOnlyList<Staff> qualified = await _staff.GetActiveByServiceAsync(primaryServiceId, ct);
         if (qualified.Count == 0)
         {
             // Servizio senza operatori: capacità a parallelSlots, nessun operatore assegnato.
@@ -361,32 +419,51 @@ internal sealed class BookingService : IBookingService
                 return Error.Validation("validation_error", "Il giorno o l'orario selezionato non è prenotabile.");
             }
 
-            var serviceBookings = (await _bookings.GetConfirmedByServiceInRangeAsync(service.Id, date, date, ct))
+            var serviceBookings = (await _bookings.GetConfirmedByServiceInRangeAsync(primaryServiceId, date, date, ct))
                 .Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
-            if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, null, serviceBookings))
+            if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, primaryServiceId, null, serviceBookings))
             {
-                return SlotUnavailableError(service.Id, date, time);
+                return SlotUnavailableError(primaryServiceId, date, time);
             }
 
             return Result.Success<Guid?>(null);
         }
 
-        // Auto-assegnazione: il primo operatore qualificato libero per lo slot.
+        // Auto-assegnazione: il primo operatore che esegue TUTTI i servizi ed è libero per il blocco continuo.
         foreach (Staff candidate in qualified)
         {
-            if (await IsStaffSlotBookableAsync(candidate.Id, service, date, time, hoursByDay, closures, config, ct))
+            if (!await ExecutesAllAsync(candidate.Id, allServiceIds, ct))
+            {
+                continue;
+            }
+
+            if (await IsStaffSlotBookableAsync(candidate.Id, primaryServiceId, date, time, hoursByDay, closures, config, ct))
             {
                 return Result.Success<Guid?>(candidate.Id);
             }
         }
 
-        return SlotUnavailableError(service.Id, date, time);
+        return SlotUnavailableError(primaryServiceId, date, time);
+    }
+
+    // True se l'operatore esegue TUTTI i servizi indicati (T1.3). N piccolo → controlli puntuali.
+    private async Task<bool> ExecutesAllAsync(Guid staffId, IReadOnlyList<Guid> serviceIds, CancellationToken ct)
+    {
+        foreach (Guid serviceId in serviceIds)
+        {
+            if (!await _staff.ExecutesServiceAsync(staffId, serviceId, ct))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // Validazione del singolo operatore RICHIESTO, con errori distinti: giorno/orario non prenotabili o
-    // operatore assente → 422; slot pieno alla ri-verifica → 409.
+    // operatore assente → 422; slot pieno alla ri-verifica → 409. La capacità usa il config combinato (durata totale).
     private async Task<Result> CheckSpecificStaffAsync(
-        Guid staffId, Service service, DateOnly date, TimeOnly time,
+        Guid staffId, Guid primaryServiceId, DateOnly date, TimeOnly time,
         Dictionary<DayOfWeekIndex, TenantBusinessHours> hoursByDay, IReadOnlyList<TenantSpecialClosure> closures,
         ServiceSlotConfig config, CancellationToken ct)
     {
@@ -411,18 +488,18 @@ internal sealed class BookingService : IBookingService
         var slots = (await _bookings.GetConfirmedByStaffInRangeAsync(staffId, date, date, ct))
             .Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
 
-        if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, staffId, slots, blocks))
+        if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, primaryServiceId, staffId, slots, blocks))
         {
-            return SlotUnavailableError(service.Id, date, time);
+            return SlotUnavailableError(primaryServiceId, date, time);
         }
 
         return Result.Success();
     }
 
-    // True se lo slot è prenotabile per l'operatore indicato (orari aperti, non assente, slot libero). Usata
+    // True se lo slot (blocco continuo, durata totale) è prenotabile per l'operatore indicato. Usata
     // dall'auto-assegnazione "qualsiasi operatore": non distingue i motivi, serve solo a scegliere chi è libero.
     private async Task<bool> IsStaffSlotBookableAsync(
-        Guid staffId, Service service, DateOnly date, TimeOnly time,
+        Guid staffId, Guid primaryServiceId, DateOnly date, TimeOnly time,
         Dictionary<DayOfWeekIndex, TenantBusinessHours> hoursByDay, IReadOnlyList<TenantSpecialClosure> closures,
         ServiceSlotConfig config, CancellationToken ct)
     {
@@ -447,7 +524,25 @@ internal sealed class BookingService : IBookingService
         var slots = (await _bookings.GetConfirmedByStaffInRangeAsync(staffId, date, date, ct))
             .Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
 
-        return AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, staffId, slots, blocks);
+        return AvailabilityCalculator.IsSlotAvailable(time, window, config, primaryServiceId, staffId, slots, blocks);
+    }
+
+    // WHY (T1.3): per un appuntamento multi-servizio (un operatore) il blocco occupato è la durata TOTALE; il
+    // buffer è quello del servizio principale (approssimazione documentata). Per il servizio singolo è esatto.
+    private static ServiceSlotConfig CombinedConfig(IReadOnlyList<Service> services)
+    {
+        if (services.Count == 1)
+        {
+            return ServiceSlotConfig.From(services[0]);
+        }
+
+        Service primary = services[0];
+        int totalDuration = services.Sum(s => s.DurationMinutes);
+        return new ServiceSlotConfig(
+            totalDuration,
+            primary.ParallelSlots,
+            primary.BufferEnabled ? primary.BufferMinutes : 0,
+            primary.BufferPosition);
     }
 
     // WHY (R-04): slot realmente PIENO/non disponibile alla ri-verifica sotto lock, distinto dalla contesa.

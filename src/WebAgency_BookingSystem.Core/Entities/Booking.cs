@@ -79,4 +79,8 @@ public class Booking : IAuditableEntity
     public Tenant? Tenant { get; set; }
     public Service? Service { get; set; }
     public Staff? Staff { get; set; }
+
+    /// <summary>Servizi che compongono l'appuntamento, in ordine (T1.3). Almeno uno; il primo combacia con
+    /// <see cref="ServiceId"/>. Per i servizi multipli la durata/prezzo del Booking sono la somma degli item.</summary>
+    public ICollection<BookingItem> Items { get; set; } = [];
 }

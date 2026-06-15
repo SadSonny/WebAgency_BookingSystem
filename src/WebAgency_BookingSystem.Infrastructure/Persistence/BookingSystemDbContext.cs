@@ -33,6 +33,7 @@ public sealed class BookingSystemDbContext : DbContext
     public DbSet<StaffBusinessHours> StaffBusinessHours => Set<StaffBusinessHours>();
     public DbSet<StaffTimeOff> StaffTimeOff => Set<StaffTimeOff>();
     public DbSet<Booking> Bookings => Set<Booking>();
+    public DbSet<BookingItem> BookingItems => Set<BookingItem>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<User> Users => Set<User>();
     public DbSet<OutboxEmail> OutboxEmails => Set<OutboxEmail>();
@@ -61,6 +62,7 @@ public sealed class BookingSystemDbContext : DbContext
         modelBuilder.Entity<StaffBusinessHours>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<StaffTimeOff>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<Booking>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
+        modelBuilder.Entity<BookingItem>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<AuditLog>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<User>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         // WHY: l'accodamento avviene in scope tenant (filtro coerente), ma il dispatcher processa la outbox
