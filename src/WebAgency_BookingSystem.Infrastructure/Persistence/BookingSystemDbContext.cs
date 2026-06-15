@@ -34,6 +34,7 @@ public sealed class BookingSystemDbContext : DbContext
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<OutboxEmail> OutboxEmails => Set<OutboxEmail>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,6 +61,9 @@ public sealed class BookingSystemDbContext : DbContext
         modelBuilder.Entity<Booking>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<AuditLog>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<User>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
+        // WHY: l'accodamento avviene in scope tenant (filtro coerente), ma il dispatcher processa la outbox
+        // CROSS-tenant → userà IgnoreQueryFilters(), come il cleanup job delle prenotazioni scadute.
+        modelBuilder.Entity<OutboxEmail>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
 
         // Service e Staff combinano il filtro tenant con il soft delete (DeletedAt == null).
         modelBuilder.Entity<Service>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId && e.DeletedAt == null);

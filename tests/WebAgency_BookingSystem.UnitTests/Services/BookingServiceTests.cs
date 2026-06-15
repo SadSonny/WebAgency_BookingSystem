@@ -11,10 +11,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
-using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Core.Common;
 using WebAgency_BookingSystem.Core.Entities;
 using WebAgency_BookingSystem.Core.Enums;
+using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
 using WebAgency_BookingSystem.Infrastructure.Services;
 
@@ -37,7 +37,7 @@ public class BookingServiceTests
         BookingService Sut,
         BookingSystemDbContext Db,
         IBookingRepository Bookings,
-        IEmailService Email);
+        IEmailOutbox Outbox);
 
     private static Harness CreateSut()
     {
@@ -55,11 +55,11 @@ public class BookingServiceTests
         var services = Substitute.For<IServiceRepository>();
         var staff = Substitute.For<IStaffRepository>();
         var bookings = Substitute.For<IBookingRepository>();
-        var email = Substitute.For<IEmailService>();
+        var outbox = Substitute.For<IEmailOutbox>();
 
-        var sut = new BookingService(db, tenantContext, tenants, services, staff, bookings, email,
+        var sut = new BookingService(db, tenantContext, tenants, services, staff, bookings, outbox,
             NullLogger<BookingService>.Instance);
-        return new Harness(sut, db, bookings, email);
+        return new Harness(sut, db, bookings, outbox);
     }
 
     private static Booking MakeBooking(BookingStatus status, DateOnly date, Guid? staffId = null) => new()
@@ -206,7 +206,8 @@ public class BookingServiceTests
         Assert.Equal("customer", booking.CancellationReason);
         Assert.NotNull(booking.CancelledAt);
 
-        await h.Email.Received(1).SendCancellationConfirmationAsync(booking, Arg.Any<CancellationToken>());
+        // PH-3: la conferma di disdetta viene ACCODATA nella outbox (invio demandato al dispatcher).
+        h.Outbox.Received(1).EnqueueCancellationConfirmation(booking);
 
         AuditLog audit = Assert.Single(h.Db.AuditLogs.ToList());
         Assert.Equal("booking_cancelled_by_customer", audit.Action);

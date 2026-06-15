@@ -1,7 +1,8 @@
-// [INTENT]: Integration smoke test del sottosistema email end-to-end (8.x). Avvia un container Mailpit,
-// configura l'API col provider Mailpit puntato al container, crea una prenotazione via HTTP e verifica che
-// l'email di conferma venga effettivamente CATTURATA da Mailpit (via la sua HTTP API). Valida così il wiring
-// completo: renderer → trasporto SMTP (MailKit) → invio fire-and-forget.
+// [INTENT]: Integration smoke test del sottosistema email end-to-end con OUTBOX (PH-3). Avvia un container
+// Mailpit, configura l'API col trasporto Mailpit puntato al container, crea una prenotazione via HTTP (che
+// ACCODA l'email nella outbox dentro la transazione), poi esegue il dispatch in modo deterministico e verifica
+// che l'email di conferma venga effettivamente CATTURATA da Mailpit. Valida il wiring completo:
+// enqueue outbox (in transazione) → dispatcher/processor → trasporto SMTP (MailKit) → Mailpit.
 
 using System.Net;
 using System.Text.Json;
@@ -11,7 +12,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.IntegrationTests.Fixtures;
 
@@ -37,18 +37,22 @@ public sealed class MailpitEmailTests : IntegrationTestBase, IAsyncLifetime
     public Task DisposeAsync() => _mailpit.DisposeAsync().AsTask();
 
     [Fact]
-    public async Task prenotazione_valida_genera_email_di_conferma_catturata_da_mailpit()
+    public async Task prenotazione_valida_accoda_e_invia_email_di_conferma_catturata_da_mailpit()
     {
         await CleanupBookingsAsync();
 
-        using HttpClient client = MailpitConfiguredClient();
+        WebApplicationFactory<Program> factory = MailpitConfiguredFactory();
+        using HttpClient client = ApiClient(factory);
         var body = BookingBody(TestData.ServiceMultiId, TestData.FutureMonday, "10:00");
 
         var response = await client.PostAsync("/api/v1/bookings", body);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
-        // WHY: l'invio è fire-and-forget post-commit → l'email arriva poco dopo la risposta. Facciamo polling
-        // sulla HTTP API di Mailpit con timeout invece di una sleep fissa (più robusto e veloce).
+        // PH-3: l'email è stata accodata nella outbox dentro la transazione. Eseguiamo il dispatch in modo
+        // DETERMINISTICO (chiamando il processor) invece di attendere il timer del BackgroundService.
+        int processed = await DispatchOutboxAsync(factory);
+        Assert.True(processed > 0, "Il dispatcher non ha trovato email pendenti in outbox.");
+
         JsonElement messages = await PollMessagesAsync(expectedAtLeast: 1);
 
         bool hasConfirmation = messages.EnumerateArray().Any(m =>
@@ -59,10 +63,9 @@ public sealed class MailpitEmailTests : IntegrationTestBase, IAsyncLifetime
         Assert.True(hasConfirmation, "Mailpit non ha catturato l'email di conferma al cliente.");
     }
 
-    // Client dell'API col provider email sostituito direttamente nei servizi (ConfigureTestServices), puntato
-    // al container Mailpit. WHY: sovrascrivere i servizi è più robusto che combattere la precedenza delle
-    // sorgenti di configurazione in WebApplicationFactory (l'appsettings dell'ambiente di test vincerebbe).
-    private HttpClient MailpitConfiguredClient()
+    // Factory dell'API col TRASPORTO email sostituito (ConfigureTestServices) e puntato al container Mailpit.
+    // WHY: sovrascrivere i servizi è più robusto che combattere la precedenza delle sorgenti di configurazione.
+    private WebApplicationFactory<Program> MailpitConfiguredFactory()
     {
         var settings = new EmailSettings
         {
@@ -75,18 +78,28 @@ public sealed class MailpitEmailTests : IntegrationTestBase, IAsyncLifetime
             BrevoApiKey = string.Empty,
         };
 
-        WebApplicationFactory<Program> factory = Fixture.Factory.WithWebHostBuilder(builder =>
+        return Fixture.Factory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<EmailSettings>();
-                services.RemoveAll<IEmailService>();
+                services.RemoveAll<IEmailSender>();
                 services.AddSingleton(settings);
-                services.AddScoped<IEmailService, MailpitEmailService>();
+                services.AddScoped<IEmailSender, MailpitEmailSender>();
             }));
+    }
 
+    private static HttpClient ApiClient(WebApplicationFactory<Program> factory)
+    {
         HttpClient client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", TestData.RawApiKey);
         return client;
+    }
+
+    private static async Task<int> DispatchOutboxAsync(WebApplicationFactory<Program> factory)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        var processor = scope.ServiceProvider.GetRequiredService<IOutboxEmailProcessor>();
+        return await processor.ProcessPendingAsync();
     }
 
     private async Task<JsonElement> PollMessagesAsync(int expectedAtLeast)

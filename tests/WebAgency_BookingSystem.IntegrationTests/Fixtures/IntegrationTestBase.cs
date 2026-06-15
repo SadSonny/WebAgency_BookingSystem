@@ -51,6 +51,8 @@ public abstract class IntegrationTestBase
         await db.Database.ExecuteSqlRawAsync(
             "DELETE FROM audit_log WHERE tenant_id = {0}", TestData.TenantId);
         await db.Database.ExecuteSqlRawAsync(
+            "DELETE FROM outbox_email WHERE tenant_id = {0}", TestData.TenantId);
+        await db.Database.ExecuteSqlRawAsync(
             "DELETE FROM bookings WHERE tenant_id = {0}", TestData.TenantId);
     }
 }

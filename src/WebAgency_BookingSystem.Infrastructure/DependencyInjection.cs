@@ -5,6 +5,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
@@ -69,8 +70,8 @@ public static class DependencyInjection
         services.AddScoped<IAvailabilityService, AvailabilityService>();
         services.AddScoped<IBookingService, BookingService>();
 
-        // Email (V2): provider selezionato per ambiente (AD-10). Renderer condiviso (contenuto) +
-        // provider di trasporto. Mailpit in dev, Brevo in prod, None → stub no-op (default sicuro).
+        // Email (V2 + PH-3): outbox transazionale. L'accodamento (IEmailOutbox) partecipa alla transazione
+        // del booking; il dispatcher in background invia col trasporto per-ambiente (AD-10) con retry/backoff.
         AddEmail(services, configuration);
 
         // Logica cleanup (scoped) + job scheduling (singleton BackgroundService).
@@ -80,8 +81,10 @@ public static class DependencyInjection
         return services;
     }
 
-    // WHY: il renderer è stateless → singleton. Il provider di trasporto è scoped come gli altri servizi
-    // applicativi. La selezione avviene una sola volta all'avvio in base a Email:Provider (AD-10).
+    // WHY (PH-3): outbox transazionale. Renderer stateless → singleton. L'accodamento (IEmailOutbox) e il
+    // processor sono scoped (usano il DbContext). Il trasporto (IEmailSender) è selezionato una sola volta in
+    // base a Email:Provider (AD-10): Mailpit (dev), Brevo (prod), None → no-op. Il dispatcher (singleton hosted)
+    // crea uno scope per ciclo e invia le email Pending con retry.
     private static void AddEmail(IServiceCollection services, IConfiguration configuration)
     {
         EmailSettings settings = EmailSettings.FromConfiguration(configuration);
@@ -91,23 +94,33 @@ public static class DependencyInjection
         switch (settings.Provider)
         {
             case EmailProvider.Mailpit:
-                services.AddScoped<IEmailService, MailpitEmailService>();
+                services.AddScoped<IEmailSender, MailpitEmailSender>();
                 break;
 
             case EmailProvider.Brevo:
                 // HttpClient tipizzato: BaseAddress + header api-key condivisi da tutte le chiamate.
-                services.AddHttpClient<BrevoEmailClient>(client =>
+                services.AddHttpClient<BrevoEmailSender>(client =>
                 {
                     client.BaseAddress = new Uri("https://api.brevo.com/");
                     client.DefaultRequestHeaders.Add("api-key", settings.BrevoApiKey);
                     client.DefaultRequestHeaders.Add("accept", "application/json");
                 });
-                services.AddScoped<IEmailService>(sp => sp.GetRequiredService<BrevoEmailClient>());
+                services.AddScoped<IEmailSender>(sp => sp.GetRequiredService<BrevoEmailSender>());
                 break;
 
             default:
-                services.AddScoped<IEmailService, EmailServiceStub>();
+                services.AddScoped<IEmailSender, NullEmailSender>();
                 break;
         }
+
+        services.AddScoped<IEmailOutbox, EmailOutbox>();
+        services.AddScoped<IOutboxEmailProcessor, EmailOutboxProcessor>();
+
+        int pollSeconds = configuration.GetValue<int?>("Email:Outbox:PollSeconds") ?? 30;
+        TimeSpan pollInterval = TimeSpan.FromSeconds(Math.Max(pollSeconds, 5));
+        services.AddHostedService(sp => new EmailOutboxDispatcher(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<ILogger<EmailOutboxDispatcher>>(),
+            pollInterval));
     }
 }

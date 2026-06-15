@@ -1,8 +1,8 @@
 // [INTENT]: Orchestrazione delle prenotazioni pubbliche (IBookingService): creazione ATOMICA con advisory
 // lock PostgreSQL (previene doppie prenotazioni sullo stesso slot), consultazione e disdetta via token.
 // La verifica di disponibilità dentro la transazione riusa AvailabilityCalculator per coerenza con l'endpoint
-// di availability. Le email post-commit sono inviate in fire-and-forget tramite il provider configurato
-// (AD-10), così non aggiungono latenza né possono compromettere l'atomicità del flusso di prenotazione.
+// di availability. Le email sono ACCODATE nella outbox dentro la stessa transazione (PH-3): vengono inviate
+// dal dispatcher in background con retry, garantendo consegna senza compromettere l'atomicità del booking.
 
 using System.Globalization;
 using System.Security.Cryptography;
@@ -18,6 +18,7 @@ using WebAgency_BookingSystem.Core.Common;
 using WebAgency_BookingSystem.Core.Dtos.Public;
 using WebAgency_BookingSystem.Core.Entities;
 using WebAgency_BookingSystem.Core.Enums;
+using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
 
 namespace WebAgency_BookingSystem.Infrastructure.Services;
@@ -36,7 +37,7 @@ internal sealed class BookingService : IBookingService
     private readonly IServiceRepository _services;
     private readonly IStaffRepository _staff;
     private readonly IBookingRepository _bookings;
-    private readonly IEmailService _email;
+    private readonly IEmailOutbox _outbox;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -46,7 +47,7 @@ internal sealed class BookingService : IBookingService
         IServiceRepository services,
         IStaffRepository staff,
         IBookingRepository bookings,
-        IEmailService email,
+        IEmailOutbox outbox,
         ILogger<BookingService> logger)
     {
         _db = db;
@@ -55,7 +56,7 @@ internal sealed class BookingService : IBookingService
         _services = services;
         _staff = staff;
         _bookings = bookings;
-        _email = email;
+        _outbox = outbox;
         _logger = logger;
     }
 
@@ -164,6 +165,22 @@ internal sealed class BookingService : IBookingService
                 // CreatedAt/UpdatedAt valorizzati dal TimestampInterceptor (R-27).
             };
 
+            // WHY (PH-3): accodiamo le email nella OUTBOX dentro la STESSA transazione del booking. Se il commit
+            // riesce, le email sono garantite in coda (inviate dal dispatcher con retry); se fallisce (o l'execution
+            // strategy riprova), anche le righe outbox sono annullate → niente email per prenotazioni inesistenti
+            // né doppioni. Le navigation servono SOLO al renderer: le valorizziamo, renderizziamo, poi le azzeriamo
+            // PRIMA di tracciare il booking, perché tenant/service vengono dalla cache AsNoTracking (detached) e EF
+            // tenterebbe di persistirli (errore di concorrenza/insert). La riga outbox porta solo gli scalari.
+            booking.Tenant = tenant;
+            booking.Service = service;
+            _outbox.EnqueueBookingConfirmation(booking);
+            if (string.Equals(tenant.NotificationMethod, "email", StringComparison.OrdinalIgnoreCase))
+            {
+                _outbox.EnqueueOwnerNotification(booking);
+            }
+            booking.Tenant = null;
+            booking.Service = null;
+
             await _bookings.AddAsync(booking, ct);
             _db.AuditLogs.Add(new AuditLog
             {
@@ -205,20 +222,8 @@ internal sealed class BookingService : IBookingService
             "Prenotazione creata {BookingId} per service {ServiceId} staff {StaffId} il {Date} alle {Time}",
             createdBooking.Id, request.ServiceId, request.StaffId, date, time);
 
-        // Post-commit, FUORI dall'execution strategy e in fire-and-forget (8.5): l'invio è accessorio e non
-        // deve aggiungere latenza alla risposta. Idratiamo le navigation richieste dal renderer con le entità
-        // già caricate, così l'invio in background NON tocca il DbContext (disposto a fine richiesta).
-        createdBooking.Tenant = tenant;
-        createdBooking.Service = service;
-
-        FireAndForget(_email.SendBookingConfirmationAsync(createdBooking, CancellationToken.None),
-            createdBooking.Id, "conferma prenotazione");
-        if (string.Equals(tenant.NotificationMethod, "email", StringComparison.OrdinalIgnoreCase))
-        {
-            FireAndForget(_email.SendOwnerNotificationAsync(createdBooking, CancellationToken.None),
-                createdBooking.Id, "notifica titolare");
-        }
-
+        // Le email sono già state accodate nella outbox dentro la transazione (PH-3): l'invio effettivo è a
+        // carico del dispatcher in background, quindi qui non c'è nulla da fare post-commit.
         return outcome;
     }
 
@@ -291,15 +296,17 @@ internal sealed class BookingService : IBookingService
             CreatedAt = nowUtc,
         });
 
+        // WHY (PH-3): accodiamo la conferma di disdetta nella outbox PRIMA del SaveChanges, così disdetta ed
+        // email sono committate atomicamente. Service/Staff sono già caricati (tracked) dal repository; il Tenant
+        // viene dalla cache (detached): lo usiamo per il renderer e poi lo azzeriamo, altrimenti EF tenterebbe di
+        // persistere un'entità detached durante l'update della disdetta. Il FK TenantId resta valorizzato.
+        booking.Tenant = tenant;
+        _outbox.EnqueueCancellationConfirmation(booking);
+        booking.Tenant = null;
+
         await _db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Prenotazione {BookingId} disdetta dal cliente", booking.Id);
-
-        // Fire-and-forget (8.5): la conferma di disdetta è accessoria. Service/Staff sono già caricati dal
-        // repository (GetByIdAndTokenAsync); idratiamo il Tenant per il renderer.
-        booking.Tenant = tenant;
-        FireAndForget(_email.SendCancellationConfirmationAsync(booking, CancellationToken.None),
-            booking.Id, "conferma disdetta");
 
         return Result.Success(new CancelBookingResponse(booking.Id, booking.Status.ToApiString(), "Prenotazione disdetta con successo."));
     }
@@ -392,17 +399,6 @@ internal sealed class BookingService : IBookingService
         byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return BitConverter.ToInt64(bytes, 0);
     }
-
-    // WHY (8.5): invio email fire-and-forget. Non attendiamo il Task (zero latenza sul flusso) e usiamo
-    // CancellationToken.None così la fine della richiesta non annulla l'invio. Il provider già non propaga
-    // eccezioni; osserviamo comunque eventuali fault per evitare UnobservedTaskException e per tracciarli.
-    private void FireAndForget(Task sendTask, Guid bookingId, string kind) =>
-        _ = sendTask.ContinueWith(
-            t => _logger.LogError(t.Exception,
-                "Invio email '{Kind}' fallito (fire-and-forget). BookingId={BookingId}", kind, bookingId),
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
 
     // Risposta neutra: non rivela se l'id esiste con token errato (sicurezza, spec 03).
     private static Result<T> NeutralNotFound<T>() =>
