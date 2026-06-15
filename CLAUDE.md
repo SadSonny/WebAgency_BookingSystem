@@ -16,9 +16,9 @@
 
 **Hardening produzione (2026-06-15, PH-1..PH-5):** CORS per-tenant dinamico dai `siteUrl` (catalogo + refresh job); advisory lock **bloccante** con `lock_timeout` (no 409 spurio su `parallelSlots>1`); email outbox durevole; user-secrets dev; confronti **DST-corretti** (`TenantTime.ToInstant`). DbContext pooling NON adottato (motivato nel piano).
 
-**Prossimo task:** Railway deploy (impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato; eseguire le migration incl. `AddEmailOutbox`). Poi 8.7 (branding template). Dubbi/decisioni aperte in `DUBBI_SESSIONE.md` (D-01…D-15).
+**Prossimo task:** Railway deploy (impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato; eseguire le migration incl. `AddEmailOutbox`). Poi 8.7 (branding template). Dubbi/decisioni aperte in `Claude_Instructions/DUBBI_SESSIONE.md` (D-01…D-15).
 
-**Note runtime (da `DOCKER_SESSION_TODO.md`):**
+**Note runtime (da `Claude_Instructions/DOCKER_SESSION_TODO.md`):**
 - API porta **5022** (launchSettings.json profilo `http`)
 - DTO `PUT /admin/business-hours`: body `{ "days": [...] }` (non array bare)
 - DTO `PUT /admin/closures`: body `{ "closures": [...] }` (non array bare)
@@ -30,7 +30,7 @@
 Quando apri questo progetto in una nuova sessione, segui questo ordine **prima di scrivere qualsiasi codice**:
 
 1. **Leggi `CLAUDE.md`** (questo file) — architettura, regole, convenzioni, stato.
-2. **Leggi `DEVELOPMENT_PLAN.md`** — trova il primo task con checkbox `[ ]` non completato. Quello è il punto di partenza.
+2. **Leggi `Claude_Instructions/DEVELOPMENT_PLAN.md`** — trova il primo task con checkbox `[ ]` non completato. Quello è il punto di partenza.
 3. **Prima di implementare un feature, leggi la spec corrispondente** in `Claude_Instructions/`:
    - Entità / schema DB → `02-schema-database.md`
    - Endpoint → `03-spec-endpoint.md`
@@ -38,7 +38,7 @@ Quando apri questo progetto in una nuova sessione, segui questo ordine **prima d
    - CLI provisioning → `05-provisioning-e-struttura.md`
    - Architettura generale → `01-architettura-e-stack.md`
 4. **Non iniziare a scrivere codice senza consenso esplicito dell'utente** nella sessione corrente. Presenta il piano del task e attendi il "vai".
-5. **Dopo ogni task completato**: spunta il checkbox in `DEVELOPMENT_PLAN.md`, aggiungi voce al Changelog, fai commit.
+5. **Dopo ogni task completato**: spunta il checkbox in `Claude_Instructions/DEVELOPMENT_PLAN.md`, aggiungi voce al Changelog, fai commit.
 
 ### Domande già risolte — non ripetere
 Le seguenti decisioni sono state prese dall'utente e non vanno rinegoziare:
@@ -89,9 +89,12 @@ WebAgency_BookingSystem/
 │   └── WebAgency_BookingSystem.IntegrationTests/ ← Integration test Testcontainers (V2)
 ├── tools/
 │   └── WebAgency_BookingSystem.TenantProvisioning/ ← CLI JSON-driven
-├── Claude_Instructions/                        ← Spec originali (riferimento immutabile)
-├── CLAUDE.md                                   ← Questo file
-└── DEVELOPMENT_PLAN.md                         ← Piano e tracciamento avanzamento
+├── Claude_Instructions/                        ← TUTTA la documentazione (.md) tranne CLAUDE.md:
+│   ├── 00-indice.md … 05-provisioning-e-struttura.md ← Spec originali (riferimento immutabile)
+│   ├── DEVELOPMENT_PLAN.md                      ← Piano e tracciamento avanzamento
+│   ├── GUIDA_INTEGRAZIONE_API.md                ← Guida integrazione siti esterni (API/onboarding/CLI)
+│   ├── DUBBI_SESSIONE.md · DOCKER_SESSION_TODO.md · CODE_REVIEW_FINDINGS.md
+└── CLAUDE.md                                   ← Questo file (unico .md nella root)
 ```
 
 ## Regole di Comportamento per Agenti AI
@@ -160,14 +163,14 @@ app.MapGet("/api/v1/services", handler)
 - **Scomponi sempre**: ogni task deve essere spezzata in sotto-task atomiche prima di eseguire. Non iniziare a scrivere codice finché la scomposizione non è chiara.
 - **Commit frequenti**: commit dopo ogni sotto-task completata e verificata. Mai accumulare modifiche non committate su più file logicamente indipendenti.
 - **Build verde prima di completare**: prima di dichiarare una task completata, eseguire `dotnet build`. Se ci sono errori, risolverli e ripetere. Una task è completa solo quando la build è pulita.
-- **Documentazione allineata**: ogni modifica che impatta architettura, endpoint, schema o decisioni deve aggiornare `CLAUDE.md` e/o `DEVELOPMENT_PLAN.md` nello stesso commit.
+- **Documentazione allineata**: ogni modifica che impatta architettura, endpoint, schema o decisioni deve aggiornare `CLAUDE.md` e/o `Claude_Instructions/DEVELOPMENT_PLAN.md` nello stesso commit.
 - **Nessuna implementazione parziale**: non lasciare metodi vuoti, `TODO` non tracciati, o stub non documentati come tali. Se qualcosa è intenzionalmente incompleto (es. V2), deve essere una classe/interfaccia esplicita con `[INTENT]` che lo dice.
 
 ### Quando Derogare alle Regole
 Se una regola deve essere violata (es. performance critica che richiede accoppiamento stretto), l'agente deve:
 1. Fermarsi e chiedere consenso esplicito all'utente
 2. Spiegare perché la regola standard non si applica in quel caso
-3. Documentare la deroga con un commento `// EXCEPTION: <motivazione>` nel codice e in `DEVELOPMENT_PLAN.md`
+3. Documentare la deroga con un commento `// EXCEPTION: <motivazione>` nel codice e in `Claude_Instructions/DEVELOPMENT_PLAN.md`
 
 ---
 
@@ -186,7 +189,7 @@ Se una regola deve essere violata (es. performance critica che richiede accoppia
 
 ## Decisioni Architetturali Chiave
 
-Vedi `DEVELOPMENT_PLAN.md` §Decisioni Architetturali per la lista completa con motivazioni.
+Vedi `Claude_Instructions/DEVELOPMENT_PLAN.md` §Decisioni Architetturali per la lista completa con motivazioni.
 
 Sommario rapido:
 - Admin credentials nella tabella `users` (multi-utente per tenant, predisposizione ruoli)
@@ -272,5 +275,8 @@ PUT    /api/v1/admin/closures
 
 ## Riferimenti
 
+Tutta la documentazione vive in `Claude_Instructions/` (unico `.md` nella root è questo `CLAUDE.md`):
 - Spec originali: `Claude_Instructions/` (00-indice, 01-architettura, 02-schema, 03-endpoint, 04-disponibilità, 05-provisioning)
-- Piano e avanzamento: `DEVELOPMENT_PLAN.md`
+- Piano e avanzamento: `Claude_Instructions/DEVELOPMENT_PLAN.md`
+- Guida integrazione (API, onboarding sito, CLI): `Claude_Instructions/GUIDA_INTEGRAZIONE_API.md`
+- Note/sessioni: `Claude_Instructions/DUBBI_SESSIONE.md`, `Claude_Instructions/DOCKER_SESSION_TODO.md`, `Claude_Instructions/CODE_REVIEW_FINDINGS.md`

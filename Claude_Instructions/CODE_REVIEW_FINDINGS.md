@@ -55,15 +55,15 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
   `BookingService`, `AvailabilityService`, i repository e `TenantResolutionMiddleware` non emettono alcun log.
   Non esiste traccia applicativa di: prenotazione creata/disdetta, conflitto slot (409), advisory lock non acquisito, tenant non risolto (401/403), regole violate (422).
   *Impatto:* in produzione, davanti a un problema (“il cliente X non riesce a prenotare”) non c'è modo di capire cosa è successo, chi ha fatto cosa, con quale esito.
-  *Fix:* iniettare `ILogger<T>` e loggare gli eventi chiave con **proprietà strutturate** (TenantId, ServiceId, StaffId, BookingId, esito, motivo). Almeno: tenant risolto/negato, booking created/cancelled, conflitto, errori regole. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs), [AvailabilityService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/AvailabilityService.cs), [TenantResolutionMiddleware.cs](src/WebAgency_BookingSystem.Api/Middleware/TenantResolutionMiddleware.cs).
+  *Fix:* iniettare `ILogger<T>` e loggare gli eventi chiave con **proprietà strutturate** (TenantId, ServiceId, StaffId, BookingId, esito, motivo). Almeno: tenant risolto/negato, booking created/cancelled, conflitto, errori regole. File: [BookingService.cs](../src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs), [AvailabilityService.cs](../src/WebAgency_BookingSystem.Infrastructure/Services/AvailabilityService.cs), [TenantResolutionMiddleware.cs](../src/WebAgency_BookingSystem.Api/Middleware/TenantResolutionMiddleware.cs).
 
 - [x] **R-02 (P1) — Manca correlazione richiesta/tenant nei log e nelle risposte d'errore.** ✅ risolto (X-Trace-Id + RequestId/TenantId in LogContext)
-  `UseSerilogRequestLogging` non è arricchito con TenantId/RequestId; l'errore 500 ([ErrorHandlingMiddleware.cs](src/WebAgency_BookingSystem.Api/Middleware/ErrorHandlingMiddleware.cs)) non restituisce un id correlabile al log.
+  `UseSerilogRequestLogging` non è arricchito con TenantId/RequestId; l'errore 500 ([ErrorHandlingMiddleware.cs](../src/WebAgency_BookingSystem.Api/Middleware/ErrorHandlingMiddleware.cs)) non restituisce un id correlabile al log.
   *Impatto:* impossibile collegare la segnalazione di un cliente alla riga di log esatta.
   *Fix:* arricchire il `LogContext` con `RequestId` (`HttpContext.TraceIdentifier`) e `TenantId` (in `TenantResolutionMiddleware` via `LogContext.PushProperty`); includere il `traceId` nell'envelope del 500 (campo aggiuntivo o header) così il cliente può comunicarlo al supporto.
 
 - [x] **R-04 (P1) — Il 409 non distingue “lock non acquisito” da “slot pieno”.** ✅ risolto
-  In [BookingService.CreateAsync](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs) entrambi i casi restituiscono lo stesso `slot_unavailable` senza log.
+  In [BookingService.CreateAsync](../src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs) entrambi i casi restituiscono lo stesso `slot_unavailable` senza log.
   *Impatto:* in debug non si capisce se si tratta di contesa (concorrenza) o di reale capienza esaurita — diagnosi opposte.
   *Fix:* loggare il ramo (lock fallito vs capacità insufficiente) a livello Information/Warning con le proprietà dello slot.
 
@@ -79,7 +79,7 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
 ## 2. Production-readiness & Deploy
 
 - [x] **R-06 (P0) — CORS assente.** ✅ risolto (policy `Frontend`, origini da `Cors:AllowedOrigins`)
-  Il frontend è un widget web che chiama l'API **da browser, cross-origin**. Senza policy CORS le richieste vengono bloccate dal browser → **il prodotto non funziona** per il caso d'uso principale. File: [Program.cs](src/WebAgency_BookingSystem.Api/Program.cs).
+  Il frontend è un widget web che chiama l'API **da browser, cross-origin**. Senza policy CORS le richieste vengono bloccate dal browser → **il prodotto non funziona** per il caso d'uso principale. File: [Program.cs](../src/WebAgency_BookingSystem.Api/Program.cs).
   *Fix:* `AddCors` + `UseCors` con policy che autorizzi le origini consentite. Idealmente le origini ammesse derivano dal `site_url` del tenant (multi-tenant CORS) o da configurazione; esporre gli header necessari e `X-Api-Key`.
 
 - [x] **R-08 (P1 — blocca deploy Railway) — `ASPNETCORE_URLS` fissato a build time nel Dockerfile.** ✅ risolto (Program.cs legge `$PORT`)
@@ -87,11 +87,11 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
   *Fix:* non bakare `ASPNETCORE_URLS`; impostarlo a runtime (entrypoint che legge `$PORT`, es. `ASPNETCORE_URLS=http://+:$PORT`) oppure configurare Kestrel a leggere `PORT` nel codice.
 
 - [x] **R-07 (P1) — ForwardedHeaders assente (dietro proxy Railway).** ✅ risolto
-  `HttpContext.Connection.RemoteIpAddress` sarà l'IP del proxy, non del cliente. Conseguenze: l'IP anonimizzato salvato in `audit_log` e usato nel fallback del rate limiter è **sbagliato/inutile**. File: [Program.cs](src/WebAgency_BookingSystem.Api/Program.cs), uso in [BookingEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/BookingEndpoints.cs).
+  `HttpContext.Connection.RemoteIpAddress` sarà l'IP del proxy, non del cliente. Conseguenze: l'IP anonimizzato salvato in `audit_log` e usato nel fallback del rate limiter è **sbagliato/inutile**. File: [Program.cs](../src/WebAgency_BookingSystem.Api/Program.cs), uso in [BookingEndpoints.cs](../src/WebAgency_BookingSystem.Api/Endpoints/BookingEndpoints.cs).
   *Fix:* `UseForwardedHeaders` (X-Forwarded-For / X-Forwarded-Proto) con `KnownProxies`/`KnownNetworks` adeguati, **prima** dei middleware che leggono IP/scheme.
 
 - [x] **R-09 (P1) — `UseHttpsRedirection` dietro TLS-terminating proxy.** ✅ mitigato da R-07 (scheme https inoltrato → niente loop)
-  Railway termina il TLS a monte: il redirect può causare loop o 307 indesiderati. File: [Program.cs](src/WebAgency_BookingSystem.Api/Program.cs).
+  Railway termina il TLS a monte: il redirect può causare loop o 307 indesiderati. File: [Program.cs](../src/WebAgency_BookingSystem.Api/Program.cs).
   *Fix:* rimuovere in produzione o condizionarlo all'ambiente, affidando lo schema a ForwardedHeaders.
 
 - [x] **R-10 (P1) — `.dockerignore` assente.** ✅ risolto
@@ -102,7 +102,7 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
   *Fix:* nel final stage usare un utente non-root (`USER app` sull'immagine aspnet, che fornisce l'utente `app`).
 
 - [x] **R-12 (P1) — Nessuna resilienza ai transient fault del DB.** ✅ risolto (EnableRetryOnFailure + execution strategy)
-  `UseNpgsql` non configura `EnableRetryOnFailure`. Riavvii/failover di Postgres propagano 500. File: [DependencyInjection.cs](src/WebAgency_BookingSystem.Infrastructure/DependencyInjection.cs).
+  `UseNpgsql` non configura `EnableRetryOnFailure`. Riavvii/failover di Postgres propagano 500. File: [DependencyInjection.cs](../src/WebAgency_BookingSystem.Infrastructure/DependencyInjection.cs).
   *Attenzione:* retry + transazioni esplicite e advisory lock richiedono una **execution strategy** gestita manualmente (`CreateExecutionStrategy().ExecuteAsync`).
   *Fix:* abilitare retry e adeguare `BookingService` all'execution strategy.
 
@@ -114,14 +114,14 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
 ## 3. Sicurezza
 
 - [x] **R-14 (P1) — La risoluzione tenant non è protetta da rate limiting.** ✅ risolto
-  Nella pipeline ([Program.cs](src/WebAgency_BookingSystem.Api/Program.cs)) `UseRateLimiter` è **dopo** `TenantResolutionMiddleware`: le richieste con API key invalida (403) **non vengono limitate**, e ogni tentativo fa una query al DB.
+  Nella pipeline ([Program.cs](../src/WebAgency_BookingSystem.Api/Program.cs)) `UseRateLimiter` è **dopo** `TenantResolutionMiddleware`: le richieste con API key invalida (403) **non vengono limitate**, e ogni tentativo fa una query al DB.
   *Impatto:* brute-force/enumerazione di API key e DoS sull'endpoint di risoluzione.
   *Fix:* limiter globale per IP a monte della risoluzione, oppure contare anche i tentativi falliti.
 
-- [x] **R-15 (P2) — Lookup API key colpisce il DB a ogni richiesta** ✅ risolto (cache TTL 60s) (nessuna cache). File: [TenantRepository.ResolveActiveByApiKeyHashAsync](src/WebAgency_BookingSystem.Infrastructure/Persistence/Repositories/TenantRepository.cs).
+- [x] **R-15 (P2) — Lookup API key colpisce il DB a ogni richiesta** ✅ risolto (cache TTL 60s) (nessuna cache). File: [TenantRepository.ResolveActiveByApiKeyHashAsync](../src/WebAgency_BookingSystem.Infrastructure/Persistence/Repositories/TenantRepository.cs).
   *Fix:* cache in-memory `hash→tenant` con TTL breve + invalidazione su revoca chiave.
 
-- [~] **R-16 (P3) — Segreti dev in `appsettings.Development.json`** ⏸ deferito (processo dev, vedi "Deferiti") (JWT secret, password DB). Solo locale, ma incoraggia l'abitudine sbagliata. File: [appsettings.Development.json](src/WebAgency_BookingSystem.Api/appsettings.Development.json).
+- [~] **R-16 (P3) — Segreti dev in `appsettings.Development.json`** ⏸ deferito (processo dev, vedi "Deferiti") (JWT secret, password DB). Solo locale, ma incoraggia l'abitudine sbagliata. File: [appsettings.Development.json](../src/WebAgency_BookingSystem.Api/appsettings.Development.json).
   *Fix:* usare `dotnet user-secrets` per i valori dev.
 
 ---
@@ -129,26 +129,26 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
 ## 4. Correttezza & Concorrenza
 
 - [~] **R-17 (P2) — L'advisory lock serializza anche slot con `parallelSlots > 1`.** ⏸ deferito a sessione Docker (vedi "Deferiti")
-  La chiave di lock è `(tenant, service, date, time)`: due prenotazioni **legittime** concorrenti sullo stesso slot multi-capienza vengono serializzate e la seconda può ricevere un **409 spurio** se la prima trattiene il lock oltre i 200 ms (singolo retry). File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
+  La chiave di lock è `(tenant, service, date, time)`: due prenotazioni **legittime** concorrenti sullo stesso slot multi-capienza vengono serializzate e la seconda può ricevere un **409 spurio** se la prima trattiene il lock oltre i 200 ms (singolo retry). File: [BookingService.cs](../src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
   *Fix:* per capacità > 1 rivedere la strategia (lock per “posto”/contatore, o retry più robusto), e comunque loggare i 409 da contesa.
 
 - [x] **R-18 (P2) — `DbUpdateException` da race non mappata a 409.** ✅ risolto
   Se l'advisory lock fallisse (o per vincoli concorrenti), l'eccezione diventa 500 generico anziché 409.
   *Fix:* catturare le violazioni di concorrenza e mapparle a `slot_unavailable` (difesa in profondità).
 
-- [x] **R-19 (P3) — Chiusure in `tenant/config` filtrate con `DateTime.UtcNow`** ✅ risolto (data locale tenant) invece dell'ora locale del tenant → possibile off-by-one a cavallo di mezzanotte. File: [TenantConfigEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/TenantConfigEndpoints.cs).
+- [x] **R-19 (P3) — Chiusure in `tenant/config` filtrate con `DateTime.UtcNow`** ✅ risolto (data locale tenant) invece dell'ora locale del tenant → possibile off-by-one a cavallo di mezzanotte. File: [TenantConfigEndpoints.cs](../src/WebAgency_BookingSystem.Api/Endpoints/TenantConfigEndpoints.cs).
   *Fix:* usare la data locale del tenant.
 
-- [x] **R-20 (P3) — `CheckBookingRulesAsync` ritorna `Result<CreateBookingResponse>` con valore dummy `default!`** ✅ risolto (Result non-generico) per veicolare solo l'esito → odore di design. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
+- [x] **R-20 (P3) — `CheckBookingRulesAsync` ritorna `Result<CreateBookingResponse>` con valore dummy `default!`** ✅ risolto (Result non-generico) per veicolare solo l'esito → odore di design. File: [BookingService.cs](../src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
   *Fix:* usare `Result` non generico o un tipo esito dedicato (`ValidationOutcome`).
 
 - [x] **R-31 (P1) — Gli errori di binding/deserializzazione bypassano l'envelope d'errore del contratto.** ✅ risolto (residuo: Guid malformato in query)
-  Il contratto (spec 03) impone che **tutti** gli errori abbiano forma `{ type, message, errors? }`. Ma gli errori di binding di Minimal API (Guid malformato, query param obbligatorio mancante, JSON non valido) producono il **400 di default di ASP.NET** (`BadHttpRequestException`/ProblemDetails RFC7807), **non** l'envelope. Es.: `GET /availability` senza `dateFrom`, o `serviceId` non-Guid → 400 fuori formato. File: tutti gli endpoint con parametri tipizzati ([AvailabilityEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/AvailabilityEndpoints.cs), [BookingEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/BookingEndpoints.cs)).
+  Il contratto (spec 03) impone che **tutti** gli errori abbiano forma `{ type, message, errors? }`. Ma gli errori di binding di Minimal API (Guid malformato, query param obbligatorio mancante, JSON non valido) producono il **400 di default di ASP.NET** (`BadHttpRequestException`/ProblemDetails RFC7807), **non** l'envelope. Es.: `GET /availability` senza `dateFrom`, o `serviceId` non-Guid → 400 fuori formato. File: tutti gli endpoint con parametri tipizzati ([AvailabilityEndpoints.cs](../src/WebAgency_BookingSystem.Api/Endpoints/AvailabilityEndpoints.cs), [BookingEndpoints.cs](../src/WebAgency_BookingSystem.Api/Endpoints/BookingEndpoints.cs)).
   *Impatto:* il frontend riceve due formati d'errore diversi a seconda del tipo di errore → gestione incoerente lato client.
   *Fix:* gestire `BadHttpRequestException`/binding nel middleware (o `AddProblemDetails` con customizzazione) per emettere l'envelope `{ type: "bad_request", message, ... }` anche per i 400 di binding.
 
 - [~] **R-32 (P3) — Edge DST nei confronti orari di disponibilità.** ⏸ accettato (impatto marginale, vedi "Deferiti")
-  `AvailabilityCalculator` e `BookingService` confrontano `DateTime` locali “naive” (Kind=Unspecified) ottenuti da `TenantTime`/`DateOnly.ToDateTime`. Nel giorno del cambio ora legale il confronto con l'anticipo minimo può sfasare di un'ora. File: [AvailabilityCalculator.cs](src/WebAgency_BookingSystem.Core/Availability/AvailabilityCalculator.cs), [TenantTime.cs](src/WebAgency_BookingSystem.Infrastructure/Services/TenantTime.cs).
+  `AvailabilityCalculator` e `BookingService` confrontano `DateTime` locali “naive” (Kind=Unspecified) ottenuti da `TenantTime`/`DateOnly.ToDateTime`. Nel giorno del cambio ora legale il confronto con l'anticipo minimo può sfasare di un'ora. File: [AvailabilityCalculator.cs](../src/WebAgency_BookingSystem.Core/Availability/AvailabilityCalculator.cs), [TenantTime.cs](../src/WebAgency_BookingSystem.Infrastructure/Services/TenantTime.cs).
   *Impatto:* marginale (2 giorni/anno, ±1h sull'anticipo minimo).
   *Fix (se rilevante):* ragionare in `DateTimeOffset` o documentare il limite; coprire con un test mirato.
 
@@ -162,7 +162,7 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
 - [x] **R-22 (P2) — Nessuna cache su dati quasi-statici** ✅ risolto (ITenantCache, TTL 30s, invalidazione per-tenant) (tenant config, business hours, services) — la spec li indica come candidati cache.
   *Fix:* `IMemoryCache` con TTL breve e invalidazione sugli update admin.
 
-- [x] **R-23 (P3) — `/health` esegue `CanConnectAsync` (hit DB) a ogni probe.** ✅ risolto (/health/live liveness senza DB) Con probe frequenti è carico inutile sul DB. File: [HealthEndpoints.cs](src/WebAgency_BookingSystem.Api/Endpoints/HealthEndpoints.cs).
+- [x] **R-23 (P3) — `/health` esegue `CanConnectAsync` (hit DB) a ogni probe.** ✅ risolto (/health/live liveness senza DB) Con probe frequenti è carico inutile sul DB. File: [HealthEndpoints.cs](../src/WebAgency_BookingSystem.Api/Endpoints/HealthEndpoints.cs).
   *Fix:* separare liveness (no DB) da readiness (DB con cache breve), o usare `AddHealthChecks().AddNpgSql()`.
 
 - [~] **R-24 (P3) — DbContext non poolizzato.** ⏸ deferito (richiede profiling, vedi "Deferiti") `AddDbContextPool` ridurrebbe le allocazioni, ma confligge con l'iniezione di `ITenantContext` scoped nel DbContext.
@@ -173,7 +173,7 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
 ## 6. Qualità, Manutenibilità, Coerenza commenti/doc
 
 - [~] **R-25 (P2) — Email `await`-ate post-commit bloccano la response.** ⏸ deferito a V2 (vedi "Deferiti")
-  Accettabile con lo stub no-op, ma con Brevo (V2) bloccherebbe la risposta e, se l'invio fallisse, non c'è retry/persistenza. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
+  Accettabile con lo stub no-op, ma con Brevo (V2) bloccherebbe la risposta e, se l'invio fallisse, non c'è retry/persistenza. File: [BookingService.cs](../src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
   *Fix (pianificazione V2):* pattern **outbox** + `BackgroundService` per invio affidabile e non bloccante; aggiornare il contratto/uso di `IEmailService` di conseguenza.
 
 - [x] **R-26 (P3) — Duplicazione costruzione `ServiceSlotConfig`** ✅ risolto (ServiceSlotConfig.From) in `AvailabilityService` e `BookingService`.
@@ -183,11 +183,11 @@ Audit **statico** (lettura codice) di Core, Infrastructure e Api, con focus su: 
   *Impatto:* arrivando admin/CLF è facile dimenticarne uno → incoerenza.
   *Fix:* `SaveChanges` interceptor che valorizza i timestamp sulle entità che li espongono.
 
-- [x] **R-28 (P3) — `BookingDetailResponse` usa `?? string.Empty`** ✅ risolto (Include con IgnoreQueryFilters + tenant) per nome servizio/staff soft-deleted → nome vuoto silenzioso. File: [BookingService.cs](src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
+- [x] **R-28 (P3) — `BookingDetailResponse` usa `?? string.Empty`** ✅ risolto (Include con IgnoreQueryFilters + tenant) per nome servizio/staff soft-deleted → nome vuoto silenzioso. File: [BookingService.cs](../src/WebAgency_BookingSystem.Infrastructure/Services/BookingService.cs).
   *Fix:* caricare service/staff con `IgnoreQueryFilters` per il dettaglio storico, o etichetta esplicita.
 
 - [x] **R-29 (P3) — Coerenza commenti.** ✅ verificata durante i fix Complessivamente buona; due punti da tenere allineati dopo i fix:
-  - il commento “GDPR-safe” su Serilog ([Program.cs](src/WebAgency_BookingSystem.Api/Program.cs)) presuppone che l'IP non sia loggato: rivalutare introducendo ForwardedHeaders/logging IP;
+  - il commento “GDPR-safe” su Serilog ([Program.cs](../src/WebAgency_BookingSystem.Api/Program.cs)) presuppone che l'IP non sia loggato: rivalutare introducendo ForwardedHeaders/logging IP;
   - i riferimenti all'header `X-Api-Key` vs `X-API-Key` (vedi `DUBBI_SESSIONE.md` D-06) vanno uniformati alla decisione finale.
 
 - [x] **R-33 (P2) — Nessun analyzer / `TreatWarningsAsErrors` / `.editorconfig` condiviso.** ✅ risolto (+ MSB3277)

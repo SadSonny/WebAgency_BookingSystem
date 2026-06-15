@@ -5,10 +5,11 @@ rivolto agli sviluppatori che collegano i siti dei clienti; allineato al codice 
 # Guida Integrazione API — WebAgency BookingSystem
 
 > Backend multi-tenant **API-only** per prenotazioni di attività locali. I siti esterni dei clienti
-> (tenant) si collegano via HTTP. **Non esiste una Admin UI** (AD-09): la gestione avviene via Admin API
-> + CLI di provisioning. Questa guida copre: API esposte, onboarding di un nuovo sito, uso della CLI.
+> (tenant) si collegano via **HTTPS** (in produzione; in sviluppo locale si usa HTTP — vedi §1).
+> **Non esiste una Admin UI** (AD-09): la gestione avviene via Admin API + CLI di provisioning.
+> Questa guida copre: API esposte, onboarding di un nuovo sito, uso della CLI.
 
-Ultimo allineamento al codice: **2026-06-14**.
+Ultimo allineamento al codice: **2026-06-15** (include hardening PH-1..PH-5).
 
 ---
 
@@ -18,9 +19,15 @@ Ultimo allineamento al codice: **2026-06-14**.
 | Ambiente | URL |
 |---|---|
 | Sviluppo locale | `http://localhost:5022` (profilo `http` in `launchSettings.json`) |
-| Produzione | URL del servizio Railway (EU West) |
+| Produzione | `https://<servizio>.railway.app` (HTTPS, EU West) |
 
 Tutte le rotte sono versionate sotto `/api/v1`.
+
+> **HTTP vs HTTPS.** In **produzione** il backend è raggiungibile **solo in HTTPS**: il TLS è terminato dal
+> proxy della piattaforma (Railway), che inoltra la richiesta al container in HTTP sulla rete interna. L'app
+> usa `UseForwardedHeaders` per ricostruire scheme/IP reali del client e `UseHttpsRedirection`. In **sviluppo
+> locale** l'API gira in chiaro su HTTP per comodità (nessun certificato da gestire). Quindi: i siti client
+> chiamano sempre `https://…` in produzione — l'HTTP visto in questa guida riguarda solo l'ambiente locale.
 
 ### Autenticazione — due livelli distinti
 | Livello | Header | Chi lo usa | Scope |
@@ -126,7 +133,8 @@ Query: `serviceId` (obbligatorio), `staffId` (opzionale), `dateFrom`, `dateTo` (
 ```
 
 #### `POST /api/v1/bookings` — Crea prenotazione
-Creazione **atomica** con advisory lock PostgreSQL (no doppie prenotazioni sullo stesso slot).
+Creazione **atomica** con advisory lock PostgreSQL **bloccante** (no doppie prenotazioni sullo stesso slot;
+nessun 409 spurio sui servizi multi-posto `parallelSlots>1` — le richieste legittime concorrenti si accodano).
 ```json
 // Richiesta
 { "serviceId": "…", "staffId": null, "date": "2026-06-22", "time": "10:00",
@@ -139,7 +147,9 @@ Creazione **atomica** con advisory lock PostgreSQL (no doppie prenotazioni sullo
 ```
 → Esiti: `201` ok · `409 slot_unavailable` slot pieno/conteso · `422 validation_error` dati o regole (anticipo minimo, finestra prenotabile, giorno chiuso) · `400 bad_request` JSON malformato.
 > ⚠ **Conserva il `cancellationToken`**: è l'unico modo per consultare/disdire la prenotazione senza login.
-> Alla creazione partono (fire-and-forget) le email di conferma al cliente e di notifica al titolare.
+> Alla creazione le email (conferma al cliente + notifica al titolare) sono **accodate in una outbox
+> transazionale** e inviate da un dispatcher in background con retry: la consegna è garantita anche se il
+> provider email è momentaneamente irraggiungibile, e non aggiunge latenza alla risposta.
 
 #### `GET /api/v1/bookings/{id}?token={guid}` — Dettaglio prenotazione
 Richiede `id` + `token`. **404 neutro** se non combaciano (non rivela l'esistenza dell'id).
@@ -218,8 +228,9 @@ Quando un nuovo sito cliente deve collegarsi:
    VITE_BOOKING_API_KEY=bk_live_xxxxxxxx
    VITE_BOOKING_API_URL=https://<backend>/api/v1
    ```
-5. **Autorizza l'origine CORS**: aggiungi il dominio del sito cliente alla configurazione `Cors:AllowedOrigins`
-   del backend (vedi nota in §5 — oggi è una lista globale).
+5. **CORS — nessuna azione manuale** (PH-1): l'origine del sito cliente è autorizzata **automaticamente** dal
+   suo `siteUrl` (campo del provisioning). Il backend ricostruisce in background l'elenco delle origini ammesse
+   dai tenant attivi. Solo per domini extra (es. staging) si aggiunge una voce a `Cors:AllowedOrigins`.
 6. **Verifica end-to-end**: `GET /tenant/config` e `GET /services` con la nuova API key, poi una prenotazione
    di prova; controlla l'arrivo dell'email (in dev: UI Mailpit `http://localhost:8025`).
 7. **Consegna al cliente** le credenziali admin per la gestione via Admin API.
@@ -291,11 +302,16 @@ dotnet run --project tools/WebAgency_BookingSystem.TenantProvisioning -- \
 
 ## 5. Note operative per la produzione
 
+- **HTTPS**: il backend è esposto **solo in HTTPS** (TLS terminato dal proxy Railway; il container parla HTTP
+  dietro il proxy, con `UseForwardedHeaders` per scheme/IP reali e `UseHttpsRedirection`). In locale è HTTP.
 - **Variabili d'ambiente** (Railway): `DATABASE_URL`, `JWT_SECRET` (≥32 char), `EMAIL_PROVIDER=Brevo`,
   `BREVO_API_KEY`, `BREVO_SENDER_EMAIL` (mittente **verificato** su Brevo), `BREVO_SENDER_NAME`,
   eventuali `RATE_LIMIT_*`, `Cors__AllowedOrigins__0=…`. La porta è iniettata via `PORT`.
-- **Email**: `Mailpit` in sviluppo (cattura, UI `:8025`), `Brevo` in produzione. Vedi `.env.example`.
-- **CORS multi-tenant**: oggi `Cors:AllowedOrigins` è una **lista globale** condivisa. Per un isolamento per
-  tenant (origini derivate dal `siteUrl`) serve un'evoluzione futura — da pianificare prima di molti tenant
-  con domini diversi.
+  Ricorda di applicare le **migration** (incl. `AddEmailOutbox`) al deploy.
+- **Email**: `Mailpit` in sviluppo (cattura, UI `:8025`), `Brevo` in produzione. Invio via **outbox
+  transazionale** con retry/backoff (dispatcher in background, `Email:Outbox:PollSeconds`). Vedi `.env.example`.
+- **CORS multi-tenant (PH-1)**: le origini ammesse derivano **automaticamente** dai `siteUrl` dei tenant attivi,
+  aggiornate in background ogni `Cors:OriginRefreshSeconds` (default 60s) — onboardare un nuovo sito non richiede
+  modifiche di config. `Cors:AllowedOrigins` resta una allowlist statica **aggiuntiva** (es. tool interni).
+  Nota: il preflight CORS non porta `X-Api-Key`, quindi l'autorizzazione è sull'origine, non per-chiave.
 - **Doc API**: Scalar/OpenAPI sono esposti solo in non-produzione.
