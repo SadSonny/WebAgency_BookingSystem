@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
@@ -23,7 +24,11 @@ namespace WebAgency_BookingSystem.Infrastructure.Services;
 
 internal sealed class BookingService : IBookingService
 {
-    private const int LockRetryDelayMs = 200;
+    // WHY (PH-2): timeout massimo di attesa del lock di slot. Il lock è BLOCCANTE (le prenotazioni legittime
+    // concorrenti aspettano il loro turno breve invece di ricevere un 409 spurio), ma non deve attendere
+    // all'infinito sotto contesa patologica: oltre questa soglia consideriamo lo slot conteso → 409.
+    private const int LockTimeoutMs = 5000;
+    private const string LockTimeoutSqlState = "55P03"; // lock_not_available
 
     private readonly BookingSystemDbContext _db;
     private readonly ITenantContext _tenantContext;
@@ -105,23 +110,28 @@ internal sealed class BookingService : IBookingService
         {
             createdBooking = null;
 
-            // WHY: pg_try_advisory_xact_lock (non bloccante) invece di un lock di riga: lo slot potrebbe non
-            // avere ancora alcuna prenotazione. La chiave hashata su tenant+servizio+data+ora dà granularità
-            // minima e si rilascia automaticamente a fine transazione.
+            // WHY (PH-2): advisory lock BLOCCANTE invece di try+singolo-retry. La chiave hashata su
+            // tenant+servizio+data+ora serializza le sole prenotazioni sullo STESSO slot (non di righe, lo slot
+            // potrebbe non avere ancora prenotazioni) e si rilascia a fine transazione. Il lock di SLOT (non
+            // per-posto) è ciò che rende corretta la ri-verifica di capacità sotto `parallelSlots > 1`: due
+            // richieste legittime concorrenti vengono accodate (niente 409 spurio), e ognuna riconta i posti
+            // occupati con dati freschi. Un lock per-posto sarebbe invece NON sicuro (più transazioni
+            // leggerebbero lo stesso conteggio e supererebbero la capacità). Il lock_timeout impedisce attese
+            // illimitate sotto contesa patologica.
             await using var transaction = await _db.Database.BeginTransactionAsync(ct);
 
-            if (!await TryAcquireSlotLockAsync(lockKey, ct))
+            try
             {
-                await Task.Delay(LockRetryDelayMs, ct);
-                if (!await TryAcquireSlotLockAsync(lockKey, ct))
-                {
-                    // R-04: CONTESA (un'altra transazione tiene il lock), distinta dalla capacità esaurita.
-                    _logger.LogWarning(
-                        "Prenotazione in conflitto: advisory lock non acquisito (slot conteso) per service {ServiceId} il {Date} alle {Time}",
-                        request.ServiceId, date, time);
-                    return Result.Failure<CreateBookingResponse>(Error.Conflict("slot_unavailable",
-                        "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova."));
-                }
+                await AcquireSlotLockAsync(lockKey, ct);
+            }
+            catch (PostgresException ex) when (ex.SqlState == LockTimeoutSqlState)
+            {
+                // R-04: CONTESA reale (lock non acquisito entro il timeout), distinta dalla capacità esaurita.
+                _logger.LogWarning(
+                    "Prenotazione in conflitto: advisory lock non acquisito entro {TimeoutMs}ms (slot conteso) per service {ServiceId} il {Date} alle {Time}",
+                    LockTimeoutMs, request.ServiceId, date, time);
+                return Result.Failure<CreateBookingResponse>(Error.Conflict("slot_unavailable",
+                    "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova."));
             }
 
             Result rulesCheck = await CheckBookingRulesAsync(tenant, service, request.StaffId, date, time, tenantNow, ct);
@@ -365,13 +375,15 @@ internal sealed class BookingService : IBookingService
         return service.BasePrice;
     }
 
-    private async Task<bool> TryAcquireSlotLockAsync(long lockKey, CancellationToken ct)
+    // Acquisisce il lock di slot in modo BLOCCANTE, ma con un lock_timeout locale alla transazione: se non lo
+    // ottiene entro LockTimeoutMs, PostgreSQL solleva un errore 55P03 (lock_not_available) che il chiamante
+    // mappa a 409 (slot conteso). pg_advisory_xact_lock rilascia automaticamente a fine transazione.
+    private async Task AcquireSlotLockAsync(long lockKey, CancellationToken ct)
     {
-        // EF mappa lo scalare booleano su una colonna chiamata "Value".
-        List<bool> rows = await _db.Database
-            .SqlQueryRaw<bool>("SELECT pg_try_advisory_xact_lock({0}) AS \"Value\"", lockKey)
-            .ToListAsync(ct);
-        return rows.Count > 0 && rows[0];
+        // WHY: SET LOCAL vale solo dentro la transazione corrente (già aperta). Il valore è una costante
+        // interna (non input utente), quindi l'interpolazione è sicura.
+        await _db.Database.ExecuteSqlRawAsync($"SET LOCAL lock_timeout = '{LockTimeoutMs}ms'", ct);
+        await _db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock({0})", [lockKey], ct);
     }
 
     private static long ComputeLockKey(Guid tenantId, Guid serviceId, DateOnly date, TimeOnly time)
