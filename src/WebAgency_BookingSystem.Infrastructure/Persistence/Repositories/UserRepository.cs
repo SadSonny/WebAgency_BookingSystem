@@ -19,4 +19,38 @@ internal sealed class UserRepository : IUserRepository
             .AsNoTracking()
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(u => u.TenantId == tenantId && u.Email == email, ct);
+
+    public async Task RegisterFailedAttemptAsync(Guid userId, int lockoutThreshold, TimeSpan lockoutDuration, CancellationToken ct = default)
+    {
+        // Carica tracked (no AsNoTracking) per persistere la mutazione; IgnoreQueryFilters perché il login è
+        // pre-risoluzione tenant.
+        User? user = await _db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null)
+        {
+            return;
+        }
+
+        user.FailedAccessCount++;
+        if (user.FailedAccessCount >= lockoutThreshold)
+        {
+            user.LockoutEnd = DateTimeOffset.UtcNow.Add(lockoutDuration);
+            user.FailedAccessCount = 0; // riparte da zero dopo il blocco
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task RegisterSuccessfulLoginAsync(Guid userId, CancellationToken ct = default)
+    {
+        User? user = await _db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null)
+        {
+            return;
+        }
+
+        user.FailedAccessCount = 0;
+        user.LockoutEnd = null;
+        user.LastLoginAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(ct);
+    }
 }

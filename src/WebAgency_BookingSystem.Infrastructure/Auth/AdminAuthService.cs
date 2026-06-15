@@ -13,6 +13,10 @@ namespace WebAgency_BookingSystem.Infrastructure.Auth;
 
 internal sealed class AdminAuthService : IAdminAuthService
 {
+    // S3: dopo questi tentativi falliti consecutivi l'account è bloccato per la durata indicata.
+    private const int MaxFailedAttempts = 5;
+    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+
     private readonly ITenantRepository _tenants;
     private readonly IUserRepository _users;
     private readonly IJwtTokenGenerator _jwt;
@@ -42,12 +46,27 @@ internal sealed class AdminAuthService : IAdminAuthService
         }
 
         User? user = await _users.GetByTenantAndEmailAsync(tenant.Id, request.Email, ct);
-        if (user is not { Active: true } || !VerifyPassword(request.Password, user.PasswordHash))
+        if (user is not { Active: true })
         {
-            _logger.LogWarning("Login admin fallito per tenant {TenantId}", tenant.Id);
+            _logger.LogWarning("Login admin fallito per tenant {TenantId} (utente inesistente/disattivato)", tenant.Id);
             return invalid;
         }
 
+        // S3: account bloccato → respingiamo SENZA verificare la password (e senza rivelare il blocco al client).
+        if (user.LockoutEnd is DateTimeOffset until && until > DateTimeOffset.UtcNow)
+        {
+            _logger.LogWarning("Login admin bloccato (lockout attivo) per utente {UserId} tenant {TenantId}", user.Id, tenant.Id);
+            return invalid;
+        }
+
+        if (!VerifyPassword(request.Password, user.PasswordHash))
+        {
+            await _users.RegisterFailedAttemptAsync(user.Id, MaxFailedAttempts, LockoutDuration, ct);
+            _logger.LogWarning("Login admin fallito (password errata) per utente {UserId} tenant {TenantId}", user.Id, tenant.Id);
+            return invalid;
+        }
+
+        await _users.RegisterSuccessfulLoginAsync(user.Id, ct);
         (string token, DateTimeOffset expiresAt) = _jwt.Generate(user.Id, tenant.Id, user.Role);
         _logger.LogInformation("Login admin riuscito: utente {UserId} tenant {TenantId}", user.Id, tenant.Id);
 

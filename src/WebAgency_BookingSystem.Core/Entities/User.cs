@@ -32,6 +32,12 @@ public class User : IAuditableEntity
     /// <summary>Istante dell'ultimo login andato a buon fine (UTC); null se mai loggato.</summary>
     public DateTimeOffset? LastLoginAt { get; set; }
 
+    /// <summary>Tentativi di login falliti consecutivi (S3). Azzerato a ogni login riuscito.</summary>
+    public int FailedAccessCount { get; set; }
+
+    /// <summary>Se valorizzato e nel futuro, l'account è bloccato fino a questo istante (UTC) — S3.</summary>
+    public DateTimeOffset? LockoutEnd { get; set; }
+
     /// <summary>Istante di creazione (UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
