@@ -16,6 +16,7 @@ internal static class AdminEndpoints
         app.MapAdminScheduleEndpoints();
         app.MapAdminStaffEndpoints();
         app.MapAdminBookingEndpoints();
+        app.MapAdminApiKeyEndpoints();
         return app;
     }
 }
