@@ -42,6 +42,10 @@ public class Tenant : IAuditableEntity
     /// <summary>Metodo di notifica: <c>email</c> oppure <c>none</c>.</summary>
     public string NotificationMethod { get; set; } = "email";
 
+    /// <summary>Ore di anticipo del promemoria pre-appuntamento (T2.3). 0 = promemoria disattivato.
+    /// Attivo solo se <see cref="NotificationMethod"/> è <c>email</c>.</summary>
+    public int ReminderHoursBefore { get; set; } = 24;
+
     /// <summary>Se false, il tenant è disattivato e le sue API key non risolvono.</summary>
     public bool Active { get; set; } = true;
 

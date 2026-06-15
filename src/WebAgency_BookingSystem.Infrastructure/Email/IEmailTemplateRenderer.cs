@@ -21,4 +21,7 @@ internal interface IEmailTemplateRenderer
 
     /// <summary>Email al cliente con la conferma dell'avvenuta disdetta.</summary>
     EmailMessage RenderCancellationConfirmation(Booking booking);
+
+    /// <summary>Email al cliente con il promemoria dell'appuntamento imminente (T2.3).</summary>
+    EmailMessage RenderReminder(Booking booking);
 }

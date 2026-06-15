@@ -78,6 +78,10 @@ public static class DependencyInjection
         services.AddScoped<IExpiredBookingCleaner, ExpiredBookingCleaner>();
         services.AddHostedService<ExpiredBookingCleanupJob>();
 
+        // Promemoria pre-appuntamento (T2.3): logica scoped + job scheduling.
+        services.AddScoped<IReminderEnqueuer, ReminderEnqueuer>();
+        services.AddHostedService<ReminderJob>();
+
         return services;
     }
 

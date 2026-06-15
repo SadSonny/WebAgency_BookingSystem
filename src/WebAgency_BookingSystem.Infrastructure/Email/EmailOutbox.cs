@@ -32,6 +32,9 @@ internal sealed class EmailOutbox : IEmailOutbox
     public void EnqueueCancellationConfirmation(Booking booking) =>
         Enqueue(_renderer.RenderCancellationConfirmation(booking), EmailKind.CancellationConfirmation, booking);
 
+    public void EnqueueReminder(Booking booking) =>
+        Enqueue(_renderer.RenderReminder(booking), EmailKind.Reminder, booking);
+
     private void Enqueue(EmailMessage message, EmailKind kind, Booking booking)
     {
         if (string.IsNullOrWhiteSpace(message.ToEmail))

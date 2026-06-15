@@ -43,6 +43,17 @@ internal sealed class EmailTemplateRenderer : IEmailTemplateRenderer
         return new EmailMessage(ownerEmail, business, subject, html, text);
     }
 
+    public EmailMessage RenderReminder(Booking booking)
+    {
+        string business = BusinessName(booking);
+        string subject = $"Promemoria appuntamento — {business}";
+        string intro = $"Ciao {Encode(booking.CustomerName)}, ti ricordiamo il tuo appuntamento. Ecco il riepilogo:";
+
+        string html = Layout(business, "Promemoria appuntamento", intro, DetailRowsHtml(booking), FooterHtml());
+        string text = TextBody("Promemoria appuntamento", intro, booking);
+        return new EmailMessage(booking.CustomerEmail, booking.CustomerName, subject, html, text);
+    }
+
     public EmailMessage RenderCancellationConfirmation(Booking booking)
     {
         string business = BusinessName(booking);

@@ -66,6 +66,9 @@ public class Booking : IAuditableEntity
     /// <summary>Istante in cui è stato segnato il no-show (UTC).</summary>
     public DateTimeOffset? NoShowMarkedAt { get; set; }
 
+    /// <summary>Istante di invio del promemoria pre-appuntamento (UTC); null se non ancora inviato (T2.3).</summary>
+    public DateTimeOffset? ReminderSentAt { get; set; }
+
     /// <summary>Prezzo snapshot al momento della prenotazione.</summary>
     public decimal? PriceAtBooking { get; set; }
 

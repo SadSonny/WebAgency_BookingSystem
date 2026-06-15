@@ -14,4 +14,7 @@ public enum EmailKind
 
     /// <summary>Conferma di avvenuta disdetta inviata al cliente.</summary>
     CancellationConfirmation,
+
+    /// <summary>Promemoria pre-appuntamento inviato al cliente (T2.3).</summary>
+    Reminder,
 }

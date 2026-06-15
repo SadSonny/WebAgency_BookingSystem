@@ -21,4 +21,7 @@ public interface IEmailOutbox
 
     /// <summary>Accoda la conferma di disdetta destinata al cliente.</summary>
     void EnqueueCancellationConfirmation(Booking booking);
+
+    /// <summary>Accoda il promemoria pre-appuntamento destinato al cliente (T2.3).</summary>
+    void EnqueueReminder(Booking booking);
 }
