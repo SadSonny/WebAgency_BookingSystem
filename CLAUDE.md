@@ -10,11 +10,13 @@
 > Build `dotnet build` verde (0 warning, analyzer + warnings-as-errors). 41 unit test verdi.
 > Tutti gli endpoint validati a runtime con Docker. Nessun bug trovato.
 
-**Fase attuale:** V1 validata + **V2 email completata** (2026-06-14). 76 test verdi (62 unit + 14 integration).
+**Fase attuale:** V1 validata + **V2 email** + **hardening produzione PH-1..PH-5** (2026-06-15). **103 test verdi** (87 unit + 16 integration).
 
-**Email (Sezione 8, AD-10/AD-11):** provider per ambiente via `Email:Provider` — **Mailpit in dev** (SMTP locale, cattura, zero verifica mittente; UI `http://localhost:8025`), **Brevo in prod** (REST). Template HTML inline italiani (`EmailTemplateRenderer`), invio fire-and-forget post-commit. Admin UI **non** prevista (AD-09); unica UI futura = dashboard interna dev (Sezione 10, rimandata).
+**Email (Sezione 8, AD-10/AD-11 + PH-3):** provider per ambiente via `Email:Provider` — **Mailpit in dev** (SMTP locale, cattura, zero verifica mittente; UI `http://localhost:8025`), **Brevo in prod** (REST). Template HTML inline italiani (`EmailTemplateRenderer`). **Invio via OUTBOX transazionale** (PH-3): l'email è accodata (`OutboxEmail`) nella transazione del booking e inviata da `EmailOutboxDispatcher` con retry/backoff; trasporto `IEmailSender` (Mailpit/Brevo/Null) separato dal contenuto. Admin UI **non** prevista (AD-09); unica UI futura = dashboard interna dev (Sezione 10, rimandata).
 
-**Prossimo task:** Railway deploy (impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato). Poi 8.7 (branding template). Dubbi/decisioni aperte in `DUBBI_SESSIONE.md` (D-01…D-15).
+**Hardening produzione (2026-06-15, PH-1..PH-5):** CORS per-tenant dinamico dai `siteUrl` (catalogo + refresh job); advisory lock **bloccante** con `lock_timeout` (no 409 spurio su `parallelSlots>1`); email outbox durevole; user-secrets dev; confronti **DST-corretti** (`TenantTime.ToInstant`). DbContext pooling NON adottato (motivato nel piano).
+
+**Prossimo task:** Railway deploy (impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato; eseguire le migration incl. `AddEmailOutbox`). Poi 8.7 (branding template). Dubbi/decisioni aperte in `DUBBI_SESSIONE.md` (D-01…D-15).
 
 **Note runtime (da `DOCKER_SESSION_TODO.md`):**
 - API porta **5022** (launchSettings.json profilo `http`)

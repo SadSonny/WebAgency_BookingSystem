@@ -1,17 +1,17 @@
 # Development Plan — WebAgency BookingSystem
 
-## Stato: EMAIL V2 COMPLETATA (2026-06-14)
+## Stato: HARDENING PRODUZIONE PH-1..PH-5 COMPLETATO (2026-06-15)
 
-> **V1 validata + V2 email completata**: infra, Core, Infrastructure, middleware, endpoint pubblici (5.1–5.8),
-> Admin API (6.1–6.14), CLI provisioning (7.x), **email transazionale (Sezione 8)**.
-> Build verde (0 warning), **76 test verdi** (62 unit + 14 integration con Testcontainers).
-> Email (AD-10/AD-11): renderer HTML inline + provider per ambiente (**Mailpit dev** / **Brevo prod**), invio
-> fire-and-forget post-commit. Smoke test end-to-end con container Mailpit.
-> Feature precedenti: `ExpiredBookingCleanupJob` + `IExpiredBookingCleaner`, buffer per-servizio (D-10).
+> **V1 validata + V2 email + hardening produzione**: infra, Core, Infrastructure, middleware, endpoint pubblici
+> (5.1–5.8), Admin API (6.1–6.14), CLI provisioning (7.x), email transazionale (Sezione 8), **hardening PH-1..PH-5**.
+> Build verde (0 warning), **103 test verdi** (87 unit + 16 integration con Testcontainers).
+> Hardening (2026-06-15): **CORS per-tenant dinamico** (PH-1), **advisory lock bloccante** anti-409-spurio (PH-2),
+> **email outbox transazionale** con dispatcher/retry (PH-3), **user-secrets** dev (PH-4), **confronti DST-corretti** (PH-5).
+> Email (AD-10/AD-11): renderer HTML inline + provider per ambiente (**Mailpit dev** / **Brevo prod**), invio via outbox.
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**Sezione 8 (email) COMPLETATA** (2026-06-14): Mailpit in dev, Brevo in prod, fire-and-forget, 76 test verdi.
+**Hardening PH-1..PH-5 COMPLETATO** (2026-06-15): vedi sezione "Hardening Produzione". 103 test verdi.
 **→ Prossimo:** Railway deploy (impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato). Poi 8.7 (branding template) quando si definisce la grafica. **NON** è prevista una Admin UI (vedi nota sotto).
 
 > **Direzione prodotto (2026-06-14):** il sistema è un **backend API-only** pensato perché siti web esterni
@@ -144,26 +144,30 @@
 
 ---
 
-## Hardening Produzione (da pianificare)
+## Hardening Produzione (PH-1..PH-5)
 
-> Rilievi emersi dall'analisi di production-readiness (2026-06-14). Nessuno bloccante; da affrontare prima
-> di scalare il numero di tenant / del deploy definitivo. Riferimenti a `CODE_REVIEW_FINDINGS.md`.
+> Rilievi emersi dall'analisi di production-readiness (2026-06-14), **implementati 2026-06-15**.
+> Riferimenti a `CODE_REVIEW_FINDINGS.md`.
 
-- [ ] **PH-1 — CORS per-tenant** (origini derivate dal `siteUrl` dei tenant, non lista globale `Cors:AllowedOrigins`).
-  Oggi le origini ammesse sono una lista unica condivisa: onboarding di un nuovo sito richiede modifica config.
-  Approccio consigliato: policy CORS dinamica che ammette un `Origin` se combacia con il `SiteUrl` di un tenant
-  attivo (set cache-ato, invalidato sulle mutazioni tenant). Nota: il preflight OPTIONS non porta `X-Api-Key`,
-  quindi la validazione non può essere per-chiave ma sull'unione degli origin noti.
-- [ ] **PH-2 — Advisory lock con `parallelSlots > 1` (R-17).** La chiave `(tenant,service,date,time)` serializza
-  prenotazioni legittime concorrenti su slot multi-capienza → possibile 409 spurio. Ora testabile con
-  Testcontainers: aggiungere test di concorrenza dedicato e affinare la strategia (es. lock per-posto).
-- [ ] **PH-3 — Email outbox durevole (R-25).** L'invio è già fire-and-forget post-commit (8.5), ma senza
-  retry/persistenza: se Brevo è irraggiungibile l'email è persa (solo loggata). Valutare pattern outbox per
-  garanzie di consegna.
-- [ ] **PH-4 — Segreti dev fuori da `appsettings.Development.json` (R-16).** Spostare `JWT_SECRET`/password DB
-  su `dotnet user-secrets` (solo abitudine dev; i valori attuali sono locali non sensibili).
-- [ ] **PH-5 — Minori accettati**: edge DST nei confronti orari (R-32, ±1h 2 giorni/anno → eventuale fix con
-  `DateTimeOffset` + test) e `DbContext` pooling (R-24, valutare solo se il profiling lo giustifica).
+- [x] **PH-1 — CORS per-tenant.** Lista globale statica sostituita da `TenantOriginCatalog` (snapshot in-memory
+  thread-safe) aggiornato da `TenantOriginRefreshJob` (BackgroundService) dai `siteUrl` dei tenant attivi
+  (`Cors:OriginRefreshSeconds`, default 60). Onboardare un nuovo sito non richiede più modifiche di config. La
+  callback CORS resta sincrona (legge solo memoria). `Cors:AllowedOrigins` resta come allowlist statica aggiuntiva.
+  `OriginNormalizer` + catalogo: +17 unit test.
+- [x] **PH-2 — Advisory lock con `parallelSlots > 1` (R-17).** `pg_try_advisory_xact_lock` + singolo retry
+  sostituito da `pg_advisory_xact_lock` BLOCCANTE con `SET LOCAL lock_timeout` (5s → 55P03 → 409 conteso):
+  niente 409 spurio, le prenotazioni legittime si accodano e ognuna riconta i posti sotto lock. Lock di SLOT
+  (non per-posto: sarebbe NON sicuro per la capacità). +2 integration test (2 conc.→2×201; 3 conc.→2×201+409).
+- [x] **PH-3 — Email outbox durevole (R-25).** Outbox transazionale: l'email è accodata (`OutboxEmail`) nella
+  stessa transazione del booking (consegna garantita) e inviata da `EmailOutboxDispatcher` con retry/backoff
+  (MaxAttempts=5). Refactor trasporto `IEmailSender` (Mailpit/Brevo/Null) separato dal contenuto. Migration
+  `AddEmailOutbox`. +4 unit (processor) + integration Mailpit via outbox.
+- [x] **PH-4 — Segreti dev su user-secrets (R-16).** `UserSecretsId` sul progetto Api: in Development gli User
+  Secrets sovrascrivono `appsettings.Development.json` (segreti reali fuori dal repo). Documentato in CLAUDE.md.
+- [x] **PH-5 — Edge DST (R-32).** `TenantTime.ToInstant` (orario locale → istante DST-corretto); le decisioni di
+  anticipo minimo e preavviso disdetta confrontano istanti assoluti (UtcNow), non DateTime locali "naive". +4
+  unit test. **`DbContext` pooling (R-24): NON implementato di proposito** — confligge con l'iniezione scoped di
+  `ITenantContext` (da cui dipende il global query filter) e non ha beneficio dimostrato senza profiling.
 
 ---
 
@@ -245,5 +249,6 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-13 | Test | 9.7 (D-10): `BufferTests` integration — ServizioBuffer (30min, After, 15min): 10:00→201, 10:30→409 (dentro buffer), 10:45→201 (fuori buffer). `SeedAsync` esteso con `EnsureLaterSeedAsync` per container reuse. Suite totale: **59 test verdi**. |
 | 2026-06-13 | Feature | `ExpiredBookingCleanupJob`: BackgroundService che ogni 60 min (configurabile `CleanupJob:IntervalMinutes`) segna NoShow le prenotazioni Confirmed scadute nel timezone del tenant. `IgnoreQueryFilters()` per operazione cross-tenant. Aggiunto `Microsoft.Extensions.Hosting.Abstractions 10.0.0`. Build 0 warning. |
 | 2026-06-14 | Email V2 | **Sezione 8 completata.** Sottosistema email multi-provider (AD-10/AD-11): renderer template HTML inline italiani (conferma/notifica titolare/disdetta), `MailpitEmailService` (SMTP/MailKit, dev) + `BrevoEmailClient` (REST, prod) dietro `RenderedEmailService`, switch per ambiente via `Email:Provider`. Invio fire-and-forget post-commit in `BookingService`. Mailpit nel docker-compose. Test: +14 unit (renderer+settings) e +1 integration smoke Mailpit. **76 test verdi** (62 unit + 14 integration), build 0 warning. Branding template rimandato (8.7). |
+| 2026-06-15 | Hardening | **PH-1..PH-5 completati**: CORS per-tenant dinamico dai siteUrl (catalogo + refresh job); advisory lock bloccante con lock_timeout anti-409-spurio su parallelSlots>1 (R-17); email outbox transazionale con dispatcher/retry, refactor trasporto IEmailSender + migration AddEmailOutbox (R-25); user-secrets dev (R-16); confronti DST-corretti via TenantTime.ToInstant (R-32); pooling (R-24) non implementato di proposito con motivazione. Build 0 warning, **103 test verdi** (87 unit + 16 integration). |
 | 2026-06-14 | Direzione | Confermato prodotto **API-only senza Admin UI** (AD-09). Aggiunta **Sezione 10** (dashboard interna dev per observability cross-tenant), rimandata. Avvio V2 email Brevo. |
 | 2026-06-13 | Test | 9.8: logica estratta in `IExpiredBookingCleaner` (scoped, testabile in isolation). `CleanupJobTests`: prenotazione ieri → NoShow, prenotazione futura → invariata. `InternalsVisibleTo` per IntegrationTests. Fix `EnsureLaterSeedAsync` con `IgnoreQueryFilters()`. Suite: **61 test verdi** (48 unit + 13 integration). |
