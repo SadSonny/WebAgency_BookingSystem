@@ -25,6 +25,8 @@ public static class TestData
     public static readonly Guid ServiceSingleId = new("20000000-0000-0000-0000-000000000002");
     // parallelSlots=1, BufferEnabled=true, BufferMinutes=15, BufferPosition=After: per testare il buffer (D-10)
     public static readonly Guid ServiceBufferId = new("20000000-0000-0000-0000-000000000003");
+    // parallelSlots=2, SENZA operatori: testa il fallback a parallelSlots (T1.2) — capacità del servizio, niente staff.
+    public static readonly Guid ServiceParallelId = new("20000000-0000-0000-0000-000000000004");
     public static readonly Guid StaffId         = new("30000000-0000-0000-0000-000000000001");
 
     // Lunedì ≥ 7 giorni da oggi: giorno lavorativo, dentro i 30 visibili, ben oltre MinAdvanceHours=1h.
@@ -100,6 +102,13 @@ public static class TestData
                 DurationMinutes = 30, BasePrice = 20m, ParallelSlots = 1,
                 BufferEnabled = true, BufferMinutes = 15, BufferPosition = BufferPosition.After,
                 Active = true, DisplayOrder = 3, CreatedAt = now, UpdatedAt = now,
+            },
+            new Service
+            {
+                // WHY (T1.2): servizio SENZA operatori → capacità a parallelSlots. Nessun StaffService collegato.
+                Id = ServiceParallelId, TenantId = TenantId, Name = "Servizio Parallelo",
+                DurationMinutes = 30, BasePrice = 10m, ParallelSlots = 2,
+                Active = true, DisplayOrder = 4, CreatedAt = now, UpdatedAt = now,
             }
         );
 
@@ -109,6 +118,8 @@ public static class TestData
             Active = true, DisplayOrder = 1, CreatedAt = now, UpdatedAt = now,
         });
 
+        // L'operatore esegue Multi/Single/Buffer (percorso aggregato/auto-assegnazione, T1.2). ServiceParallel
+        // resta SENZA operatori (fallback a parallelSlots).
         db.StaffServices.AddRange(
             new StaffService { Id = Guid.NewGuid(), TenantId = TenantId, StaffId = StaffId, ServiceId = ServiceMultiId },
             new StaffService { Id = Guid.NewGuid(), TenantId = TenantId, StaffId = StaffId, ServiceId = ServiceSingleId },
@@ -130,28 +141,45 @@ public static class TestData
     }
 
     // WHY: quando il container viene riusato, il tenant esiste già ma entità aggiunte in run successive
-    // (es. ServiceBufferId) possono mancare. Questo metodo le inserisce senza toccare il resto.
+    // (es. ServiceBufferId, ServiceParallelId) possono mancare. Le inseriamo singolarmente (ognuna con il
+    // proprio guard) senza toccare il resto. IgnoreQueryFilters() perché nel fixture non c'è ITenantContext.
     private static async Task EnsureLaterSeedAsync(BookingSystemDbContext db)
     {
-        // WHY: IgnoreQueryFilters() necessario — il global filter su Services filtra per tenant_id;
-        // nel contesto del fixture non c'è ITenantContext impostato, quindi senza IgnoreQueryFilters
-        // il check restituisce false e la successiva INSERT causa duplicate key violation.
-        if (await db.Services.IgnoreQueryFilters().AnyAsync(s => s.Id == ServiceBufferId))
-            return;
-
         var now = DateTimeOffset.UtcNow;
-        db.Services.Add(new Service
+        bool changed = false;
+
+        if (!await db.Services.IgnoreQueryFilters().AnyAsync(s => s.Id == ServiceBufferId))
         {
-            Id = ServiceBufferId, TenantId = TenantId, Name = "Taglio Buffer",
-            DurationMinutes = 30, BasePrice = 20m, ParallelSlots = 1,
-            BufferEnabled = true, BufferMinutes = 15, BufferPosition = BufferPosition.After,
-            Active = true, DisplayOrder = 3, CreatedAt = now, UpdatedAt = now,
-        });
-        db.StaffServices.Add(new StaffService
+            db.Services.Add(new Service
+            {
+                Id = ServiceBufferId, TenantId = TenantId, Name = "Taglio Buffer",
+                DurationMinutes = 30, BasePrice = 20m, ParallelSlots = 1,
+                BufferEnabled = true, BufferMinutes = 15, BufferPosition = BufferPosition.After,
+                Active = true, DisplayOrder = 3, CreatedAt = now, UpdatedAt = now,
+            });
+            db.StaffServices.Add(new StaffService
+            {
+                Id = Guid.NewGuid(), TenantId = TenantId, StaffId = StaffId, ServiceId = ServiceBufferId,
+            });
+            changed = true;
+        }
+
+        if (!await db.Services.IgnoreQueryFilters().AnyAsync(s => s.Id == ServiceParallelId))
         {
-            Id = Guid.NewGuid(), TenantId = TenantId, StaffId = StaffId, ServiceId = ServiceBufferId,
-        });
-        await db.SaveChangesAsync();
+            // SENZA StaffService: testa il fallback a parallelSlots (T1.2).
+            db.Services.Add(new Service
+            {
+                Id = ServiceParallelId, TenantId = TenantId, Name = "Servizio Parallelo",
+                DurationMinutes = 30, BasePrice = 10m, ParallelSlots = 2,
+                Active = true, DisplayOrder = 4, CreatedAt = now, UpdatedAt = now,
+            });
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await db.SaveChangesAsync();
+        }
     }
 
     private static TenantBusinessHours OpenDay(Guid tenantId, DayOfWeekIndex day,

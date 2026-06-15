@@ -54,7 +54,9 @@ public sealed class CreateBookingTests : IntegrationTestBase
         // WHY: il giorno chiuso non esiste come slot valido → CheckBookingRulesAsync ritorna
         // Error.Validation (non Error.Conflict) → 422, non 409.
         using var client = AuthenticatedClient();
-        var body = BookingBody(TestData.ServiceMultiId, TestData.NextSunday, "10:00");
+        // ServiceParallel è senza operatori → percorso a parallelSlots: giorno chiuso ⇒ finestra nulla ⇒ 422
+        // (validation), distinto dal 409 di capacità. Con un servizio legato a operatori il "tutti chiusi" sarebbe 409.
+        var body = BookingBody(TestData.ServiceParallelId, TestData.NextSunday, "10:00");
 
         var response = await client.PostAsync("/api/v1/bookings", body);
 

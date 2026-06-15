@@ -87,62 +87,131 @@ internal sealed class AvailabilityService : IAvailabilityService
 
         IReadOnlyList<TenantSpecialClosure> closures = await _tenants.GetActiveSpecialClosuresAsync(tenantId, request.DateFrom, ct);
 
-        Dictionary<DayOfWeekIndex, StaffBusinessHours> staffHoursByDay = new();
-        IReadOnlyList<StaffTimeOff> staffTimeOff = [];
-        if (request.StaffId is Guid sid)
-        {
-            IReadOnlyList<StaffBusinessHours> staffHours = await _staff.GetBusinessHoursAsync(sid, ct);
-            staffHoursByDay = staffHours.ToDictionary(h => h.DayOfWeek);
-            // T1.1: assenze dell'operatore nel range (giorni interi → giorno escluso; fasce → intervalli bloccanti).
-            staffTimeOff = await _staff.GetTimeOffInRangeAsync(sid, request.DateFrom, request.DateTo, ct);
-        }
-
-        IReadOnlyList<Booking> existing = request.StaffId is Guid staffFilter
-            ? await _bookings.GetConfirmedByStaffInRangeAsync(staffFilter, request.DateFrom, request.DateTo, ct)
-            : await _bookings.GetConfirmedByServiceInRangeAsync(request.ServiceId, request.DateFrom, request.DateTo, ct);
-
-        ILookup<DateOnly, BookingSlot> bookingsByDate = existing
-            .ToLookup(b => b.BookingDate, b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId));
-
         DateTime tenantNow = TenantTime.Now(tenant.Timezone);
         ServiceSlotConfig config = ServiceSlotConfig.From(service);
 
-        var days = new List<AvailabilityDayResponse>();
-        for (DateOnly date = request.DateFrom; date <= request.DateTo; date = date.AddDays(1))
+        // T1.2: chi consideriamo. Staff specifico → solo quello. "Qualsiasi" → tutti gli operatori attivi che
+        // ESEGUONO il servizio; se nessuno lo esegue (servizio non legato a una persona) si ricade sul modello
+        // a parallelSlots.
+        List<Guid> staffIds;
+        if (request.StaffId is Guid only)
         {
-            DayWindow? window = HoursResolver.ResolveWindow(date, hoursByDay, staffHoursByDay, closures, request.StaffId);
-            if (window is null)
+            staffIds = [only];
+        }
+        else
+        {
+            IReadOnlyList<Staff> qualified = await _staff.GetActiveByServiceAsync(request.ServiceId, ct);
+            staffIds = qualified.Select(s => s.Id).ToList();
+        }
+
+        var days = new List<AvailabilityDayResponse>();
+
+        if (staffIds.Count == 0)
+        {
+            // Servizio senza operatori: capacità aggregata a parallelSlots, slot senza operatore.
+            IReadOnlyList<Booking> existing = await _bookings.GetConfirmedByServiceInRangeAsync(
+                request.ServiceId, request.DateFrom, request.DateTo, ct);
+            ILookup<DateOnly, BookingSlot> bookingsByDate = existing
+                .ToLookup(b => b.BookingDate, b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId));
+
+            for (DateOnly date = request.DateFrom; date <= request.DateTo; date = date.AddDays(1))
             {
-                continue; // giorno chiuso / chiusura straordinaria / staff non disponibile
+                DayWindow? window = HoursResolver.ResolveWindow(
+                    date, hoursByDay, new Dictionary<DayOfWeekIndex, StaffBusinessHours>(), closures, null);
+                if (window is null)
+                {
+                    continue;
+                }
+
+                IReadOnlyList<SlotResult> slots = AvailabilityCalculator.ComputeDay(
+                    date, window, config, request.ServiceId, null, bookingsByDate[date].ToList(), tenantNow, tenant.MinAdvanceHours);
+                if (slots.Count == 0)
+                {
+                    continue;
+                }
+
+                days.Add(new AvailabilityDayResponse(date.ToString("yyyy-MM-dd"),
+                    slots.Select(s => new SlotResponse(s.Time.ToString("HH:mm"), null, s.Available)).ToList()));
             }
 
-            // T1.1: assenza a giornata intera → l'operatore non lavora quel giorno (giorno escluso).
-            DateOnly d = date;
-            if (staffTimeOff.Any(t => t.IsFullDay && d >= t.DateFrom && d <= t.DateTo))
+            return Result.Success<IReadOnlyList<AvailabilityDayResponse>>(days);
+        }
+
+        // Aggregazione per operatore: un orario è disponibile se lo è per ALMENO un operatore qualificato.
+        var merged = new SortedDictionary<DateOnly, SortedDictionary<TimeOnly, bool>>();
+        foreach (Guid qualifiedStaffId in staffIds)
+        {
+            await AccumulateStaffAsync(qualifiedStaffId, request, hoursByDay, closures, config, tenant, tenantNow, merged, ct);
+        }
+
+        foreach ((DateOnly date, SortedDictionary<TimeOnly, bool> slotMap) in merged)
+        {
+            if (slotMap.Count == 0)
             {
                 continue;
             }
 
-            IReadOnlyList<TimeInterval> staffBlocks = staffTimeOff
-                .Where(t => !t.IsFullDay && d >= t.DateFrom && d <= t.DateTo)
-                .Select(t => new TimeInterval(t.StartTime!.Value, t.EndTime!.Value))
-                .ToList();
-
-            IReadOnlyList<BookingSlot> dayBookings = bookingsByDate[date].ToList();
-            IReadOnlyList<SlotResult> slots = AvailabilityCalculator.ComputeDay(
-                date, window, config, request.ServiceId, request.StaffId, dayBookings, tenantNow, tenant.MinAdvanceHours, staffBlocks);
-
-            if (slots.Count == 0)
-            {
-                continue; // nessuno slot candidato (passato, finestra troppo stretta): giorno non incluso
-            }
-
-            var slotDtos = slots
-                .Select(s => new SlotResponse(s.Time.ToString("HH:mm"), request.StaffId, s.Available))
-                .ToList();
+            // Lo staffId nella response riflette la richiesta: l'id se specifico, null se "qualsiasi" (l'operatore
+            // viene auto-assegnato solo alla creazione della prenotazione).
+            var slotDtos = slotMap.Select(kv => new SlotResponse(kv.Key.ToString("HH:mm"), request.StaffId, kv.Value)).ToList();
             days.Add(new AvailabilityDayResponse(date.ToString("yyyy-MM-dd"), slotDtos));
         }
 
         return Result.Success<IReadOnlyList<AvailabilityDayResponse>>(days);
+    }
+
+    // Calcola la disponibilità di UN operatore nel range (orari/assenze/prenotazioni propri) e la fonde in OR
+    // nella mappa per data→orario→disponibile. Riusa l'algoritmo puro per-staff.
+    private async Task AccumulateStaffAsync(
+        Guid staffId, AvailabilityRequest request,
+        Dictionary<DayOfWeekIndex, TenantBusinessHours> hoursByDay,
+        IReadOnlyList<TenantSpecialClosure> closures,
+        ServiceSlotConfig config, Tenant tenant, DateTime tenantNow,
+        SortedDictionary<DateOnly, SortedDictionary<TimeOnly, bool>> merged, CancellationToken ct)
+    {
+        IReadOnlyList<StaffBusinessHours> staffHours = await _staff.GetBusinessHoursAsync(staffId, ct);
+        Dictionary<DayOfWeekIndex, StaffBusinessHours> staffHoursByDay = staffHours.ToDictionary(h => h.DayOfWeek);
+        IReadOnlyList<StaffTimeOff> timeOff = await _staff.GetTimeOffInRangeAsync(staffId, request.DateFrom, request.DateTo, ct);
+        IReadOnlyList<Booking> bookings = await _bookings.GetConfirmedByStaffInRangeAsync(staffId, request.DateFrom, request.DateTo, ct);
+        ILookup<DateOnly, BookingSlot> bookingsByDate = bookings
+            .ToLookup(b => b.BookingDate, b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId));
+
+        for (DateOnly date = request.DateFrom; date <= request.DateTo; date = date.AddDays(1))
+        {
+            DayWindow? window = HoursResolver.ResolveWindow(date, hoursByDay, staffHoursByDay, closures, staffId);
+            if (window is null)
+            {
+                continue;
+            }
+
+            DateOnly d = date;
+            if (timeOff.Any(t => t.IsFullDay && d >= t.DateFrom && d <= t.DateTo))
+            {
+                continue; // assenza a giornata intera
+            }
+
+            IReadOnlyList<TimeInterval> blocks = timeOff
+                .Where(t => !t.IsFullDay && d >= t.DateFrom && d <= t.DateTo)
+                .Select(t => new TimeInterval(t.StartTime!.Value, t.EndTime!.Value))
+                .ToList();
+
+            IReadOnlyList<SlotResult> slots = AvailabilityCalculator.ComputeDay(
+                date, window, config, request.ServiceId, staffId, bookingsByDate[date].ToList(), tenantNow, tenant.MinAdvanceHours, blocks);
+            if (slots.Count == 0)
+            {
+                continue;
+            }
+
+            if (!merged.TryGetValue(date, out SortedDictionary<TimeOnly, bool>? slotMap))
+            {
+                slotMap = new SortedDictionary<TimeOnly, bool>();
+                merged[date] = slotMap;
+            }
+
+            foreach (SlotResult s in slots)
+            {
+                slotMap[s.Time] = slotMap.TryGetValue(s.Time, out bool existing) ? existing || s.Available : s.Available;
+            }
+        }
     }
 }

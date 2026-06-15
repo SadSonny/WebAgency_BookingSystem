@@ -135,13 +135,16 @@ internal sealed class BookingService : IBookingService
                     "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova."));
             }
 
-            Result rulesCheck = await CheckBookingRulesAsync(tenant, service, request.StaffId, date, time, tenantNow, ct);
-            if (rulesCheck.IsFailure)
+            // T1.2: determina l'operatore effettivo. Se richiesto, lo valida; se "qualsiasi", auto-assegna un
+            // operatore qualificato libero; se il servizio non ha operatori, resta null (capacità a parallelSlots).
+            Result<Guid?> staffResolution = await ResolveStaffAsync(tenant, service, request.StaffId, date, time, tenantNow, ct);
+            if (staffResolution.IsFailure)
             {
-                return Result.Failure<CreateBookingResponse>(rulesCheck.Error);
+                return Result.Failure<CreateBookingResponse>(staffResolution.Error);
             }
 
-            decimal? price = await ResolvePriceAsync(service, request.StaffId, ct);
+            Guid? effectiveStaffId = staffResolution.Value;
+            decimal? price = await ResolvePriceAsync(service, effectiveStaffId, ct);
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
 
             var booking = new Booking
@@ -149,7 +152,7 @@ internal sealed class BookingService : IBookingService
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
                 ServiceId = request.ServiceId,
-                StaffId = request.StaffId,
+                StaffId = effectiveStaffId,
                 BookingDate = date,
                 BookingTime = time,
                 DurationMinutes = service.DurationMinutes,
@@ -220,7 +223,7 @@ internal sealed class BookingService : IBookingService
 
         _logger.LogInformation(
             "Prenotazione creata {BookingId} per service {ServiceId} staff {StaffId} il {Date} alle {Time}",
-            createdBooking.Id, request.ServiceId, request.StaffId, date, time);
+            createdBooking.Id, request.ServiceId, createdBooking.StaffId, date, time);
 
         // Le email sono già state accodate nella outbox dentro la transazione (PH-3): l'invio effettivo è a
         // carico del dispatcher in background, quindi qui non c'è nulla da fare post-commit.
@@ -316,46 +319,13 @@ internal sealed class BookingService : IBookingService
         return Result.Success(new CancelBookingResponse(booking.Id, booking.Status.ToApiString(), "Prenotazione disdetta con successo."));
     }
 
-    // Ri-verifica regole di business + disponibilità DENTRO la transazione (con dati freschi sotto lock).
-    // Restituisce un Result senza valore: veicola solo l'esito (successo o errore), non un payload (R-20).
-    private async Task<Result> CheckBookingRulesAsync(
-        Tenant tenant, Service service, Guid? staffId, DateOnly date, TimeOnly time, DateTime tenantNow, CancellationToken ct)
+    // Ri-verifica regole di business + disponibilità DENTRO la transazione (con dati freschi sotto lock) e
+    // DETERMINA l'operatore effettivo (T1.2). Restituisce lo staffId da assegnare: l'id richiesto se valido,
+    // un operatore qualificato libero se "qualsiasi", o null se il servizio non ha operatori (parallelSlots).
+    private async Task<Result<Guid?>> ResolveStaffAsync(
+        Tenant tenant, Service service, Guid? requestedStaffId, DateOnly date, TimeOnly time, DateTime tenantNow, CancellationToken ct)
     {
-        Guid tenantId = tenant.Id;
-
-        IReadOnlyList<TenantBusinessHours> businessHours = await _tenants.GetBusinessHoursAsync(tenantId, ct);
-        IReadOnlyList<TenantSpecialClosure> closures = await _tenants.GetActiveSpecialClosuresAsync(tenantId, date, ct);
-
-        Dictionary<DayOfWeekIndex, StaffBusinessHours> staffHoursByDay = new();
-        IReadOnlyList<StaffTimeOff> staffTimeOff = [];
-        if (staffId is Guid sid)
-        {
-            IReadOnlyList<StaffBusinessHours> staffHours = await _staff.GetBusinessHoursAsync(sid, ct);
-            staffHoursByDay = staffHours.ToDictionary(h => h.DayOfWeek);
-            staffTimeOff = await _staff.GetTimeOffInRangeAsync(sid, date, date, ct);
-        }
-
-        var hoursByDay = businessHours.ToDictionary(h => h.DayOfWeek);
-        DayWindow? window = HoursResolver.ResolveWindow(date, hoursByDay, staffHoursByDay, closures, staffId);
-        if (window is null)
-        {
-            return Error.Validation("validation_error", "Il giorno o l'orario selezionato non è prenotabile.");
-        }
-
-        // T1.1: assenza dell'operatore — giornata intera blocca del tutto; le fasce parziali sono passate al
-        // calcolatore come intervalli "duri" che invalidano gli slot sovrapposti.
-        if (staffTimeOff.Any(t => t.IsFullDay))
-        {
-            return Error.Validation("validation_error", "L'operatore selezionato non è disponibile nella data scelta.");
-        }
-
-        IReadOnlyList<TimeInterval> staffBlocks = staffTimeOff
-            .Where(t => !t.IsFullDay)
-            .Select(t => new TimeInterval(t.StartTime!.Value, t.EndTime!.Value))
-            .ToList();
-
-        // PH-5: confronto su istanti assoluti (DST-corretto) per l'anticipo minimo: lo slot locale è convertito
-        // nel suo istante e confrontato con "ora UTC + anticipo", invece di sommare ore in ora locale "naive".
+        // Regole staff-indipendenti (PH-5: anticipo su istanti assoluti, DST-corretto).
         DateTimeOffset bookingInstant = TenantTime.ToInstant(date, time, tenant.Timezone);
         if (bookingInstant < DateTimeOffset.UtcNow.AddHours(tenant.MinAdvanceHours))
         {
@@ -367,25 +337,128 @@ internal sealed class BookingService : IBookingService
             return Error.Validation("validation_error", "La data selezionata è oltre il periodo prenotabile.");
         }
 
-        IReadOnlyList<Booking> dayBookings = staffId is Guid staffFilter
-            ? await _bookings.GetConfirmedByStaffInRangeAsync(staffFilter, date, date, ct)
-            : await _bookings.GetConfirmedByServiceInRangeAsync(service.Id, date, date, ct);
-
-        var slots = dayBookings.Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
+        IReadOnlyList<TenantBusinessHours> businessHours = await _tenants.GetBusinessHoursAsync(tenant.Id, ct);
+        IReadOnlyList<TenantSpecialClosure> closures = await _tenants.GetActiveSpecialClosuresAsync(tenant.Id, date, ct);
+        var hoursByDay = businessHours.ToDictionary(h => h.DayOfWeek);
         ServiceSlotConfig config = ServiceSlotConfig.From(service);
 
-        if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, staffId, slots, staffBlocks))
+        // Operatore specifico richiesto: validazione con messaggi di errore mirati.
+        if (requestedStaffId is Guid sid)
         {
-            // WHY (R-04): qui lo slot è realmente PIENO/non valido alla ri-verifica sotto lock (capacità
-            // esaurita o regola oraria), distinto dalla contesa di lock loggata in CreateAsync.
-            _logger.LogInformation(
-                "Prenotazione rifiutata: slot non disponibile alla ri-verifica per service {ServiceId} il {Date} alle {Time}",
-                service.Id, date, time);
-            return Error.Conflict("slot_unavailable",
-                "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova.");
+            Result check = await CheckSpecificStaffAsync(sid, service, date, time, hoursByDay, closures, config, ct);
+            return check.IsFailure ? Result.Failure<Guid?>(check.Error) : Result.Success<Guid?>(sid);
+        }
+
+        // "Qualsiasi operatore": gli operatori qualificati sono quelli che eseguono il servizio.
+        IReadOnlyList<Staff> qualified = await _staff.GetActiveByServiceAsync(service.Id, ct);
+        if (qualified.Count == 0)
+        {
+            // Servizio senza operatori: capacità a parallelSlots, nessun operatore assegnato.
+            DayWindow? window = HoursResolver.ResolveWindow(
+                date, hoursByDay, new Dictionary<DayOfWeekIndex, StaffBusinessHours>(), closures, null);
+            if (window is null)
+            {
+                return Error.Validation("validation_error", "Il giorno o l'orario selezionato non è prenotabile.");
+            }
+
+            var serviceBookings = (await _bookings.GetConfirmedByServiceInRangeAsync(service.Id, date, date, ct))
+                .Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
+            if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, null, serviceBookings))
+            {
+                return SlotUnavailableError(service.Id, date, time);
+            }
+
+            return Result.Success<Guid?>(null);
+        }
+
+        // Auto-assegnazione: il primo operatore qualificato libero per lo slot.
+        foreach (Staff candidate in qualified)
+        {
+            if (await IsStaffSlotBookableAsync(candidate.Id, service, date, time, hoursByDay, closures, config, ct))
+            {
+                return Result.Success<Guid?>(candidate.Id);
+            }
+        }
+
+        return SlotUnavailableError(service.Id, date, time);
+    }
+
+    // Validazione del singolo operatore RICHIESTO, con errori distinti: giorno/orario non prenotabili o
+    // operatore assente → 422; slot pieno alla ri-verifica → 409.
+    private async Task<Result> CheckSpecificStaffAsync(
+        Guid staffId, Service service, DateOnly date, TimeOnly time,
+        Dictionary<DayOfWeekIndex, TenantBusinessHours> hoursByDay, IReadOnlyList<TenantSpecialClosure> closures,
+        ServiceSlotConfig config, CancellationToken ct)
+    {
+        var staffHoursByDay = (await _staff.GetBusinessHoursAsync(staffId, ct)).ToDictionary(h => h.DayOfWeek);
+        DayWindow? window = HoursResolver.ResolveWindow(date, hoursByDay, staffHoursByDay, closures, staffId);
+        if (window is null)
+        {
+            return Error.Validation("validation_error", "Il giorno o l'orario selezionato non è prenotabile.");
+        }
+
+        IReadOnlyList<StaffTimeOff> timeOff = await _staff.GetTimeOffInRangeAsync(staffId, date, date, ct);
+        if (timeOff.Any(t => t.IsFullDay))
+        {
+            return Error.Validation("validation_error", "L'operatore selezionato non è disponibile nella data scelta.");
+        }
+
+        IReadOnlyList<TimeInterval> blocks = timeOff
+            .Where(t => !t.IsFullDay)
+            .Select(t => new TimeInterval(t.StartTime!.Value, t.EndTime!.Value))
+            .ToList();
+
+        var slots = (await _bookings.GetConfirmedByStaffInRangeAsync(staffId, date, date, ct))
+            .Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
+
+        if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, staffId, slots, blocks))
+        {
+            return SlotUnavailableError(service.Id, date, time);
         }
 
         return Result.Success();
+    }
+
+    // True se lo slot è prenotabile per l'operatore indicato (orari aperti, non assente, slot libero). Usata
+    // dall'auto-assegnazione "qualsiasi operatore": non distingue i motivi, serve solo a scegliere chi è libero.
+    private async Task<bool> IsStaffSlotBookableAsync(
+        Guid staffId, Service service, DateOnly date, TimeOnly time,
+        Dictionary<DayOfWeekIndex, TenantBusinessHours> hoursByDay, IReadOnlyList<TenantSpecialClosure> closures,
+        ServiceSlotConfig config, CancellationToken ct)
+    {
+        var staffHoursByDay = (await _staff.GetBusinessHoursAsync(staffId, ct)).ToDictionary(h => h.DayOfWeek);
+        DayWindow? window = HoursResolver.ResolveWindow(date, hoursByDay, staffHoursByDay, closures, staffId);
+        if (window is null)
+        {
+            return false;
+        }
+
+        IReadOnlyList<StaffTimeOff> timeOff = await _staff.GetTimeOffInRangeAsync(staffId, date, date, ct);
+        if (timeOff.Any(t => t.IsFullDay))
+        {
+            return false;
+        }
+
+        IReadOnlyList<TimeInterval> blocks = timeOff
+            .Where(t => !t.IsFullDay)
+            .Select(t => new TimeInterval(t.StartTime!.Value, t.EndTime!.Value))
+            .ToList();
+
+        var slots = (await _bookings.GetConfirmedByStaffInRangeAsync(staffId, date, date, ct))
+            .Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
+
+        return AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, staffId, slots, blocks);
+    }
+
+    // WHY (R-04): slot realmente PIENO/non disponibile alla ri-verifica sotto lock, distinto dalla contesa.
+    // Restituisce un Error (convertibile sia a Result sia a Result&lt;T&gt; tramite gli operatori impliciti).
+    private Error SlotUnavailableError(Guid serviceId, DateOnly date, TimeOnly time)
+    {
+        _logger.LogInformation(
+            "Prenotazione rifiutata: slot non disponibile alla ri-verifica per service {ServiceId} il {Date} alle {Time}",
+            serviceId, date, time);
+        return Error.Conflict("slot_unavailable",
+            "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova.");
     }
 
     private async Task<decimal?> ResolvePriceAsync(Service service, Guid? staffId, CancellationToken ct)

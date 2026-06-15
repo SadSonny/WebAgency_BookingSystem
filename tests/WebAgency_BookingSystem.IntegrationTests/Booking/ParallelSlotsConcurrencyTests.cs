@@ -20,8 +20,8 @@ public sealed class ParallelSlotsConcurrencyTests : IntegrationTestBase
         using var client1 = AuthenticatedClient();
         using var client2 = AuthenticatedClient();
 
-        var body1 = BookingBody(TestData.ServiceMultiId, TestData.FutureMonday, "16:00");
-        var body2 = BookingBody(TestData.ServiceMultiId, TestData.FutureMonday, "16:00");
+        var body1 = BookingBody(TestData.ServiceParallelId, TestData.FutureMonday, "16:00");
+        var body2 = BookingBody(TestData.ServiceParallelId, TestData.FutureMonday, "16:00");
 
         var responses = await Task.WhenAll(
             client1.PostAsync("/api/v1/bookings", body1),
@@ -43,9 +43,9 @@ public sealed class ParallelSlotsConcurrencyTests : IntegrationTestBase
         using var client2 = AuthenticatedClient();
         using var client3 = AuthenticatedClient();
 
-        var body1 = BookingBody(TestData.ServiceMultiId, TestData.FutureMonday, "17:00");
-        var body2 = BookingBody(TestData.ServiceMultiId, TestData.FutureMonday, "17:00");
-        var body3 = BookingBody(TestData.ServiceMultiId, TestData.FutureMonday, "17:00");
+        var body1 = BookingBody(TestData.ServiceParallelId, TestData.FutureMonday, "17:00");
+        var body2 = BookingBody(TestData.ServiceParallelId, TestData.FutureMonday, "17:00");
+        var body3 = BookingBody(TestData.ServiceParallelId, TestData.FutureMonday, "17:00");
 
         var responses = await Task.WhenAll(
             client1.PostAsync("/api/v1/bookings", body1),
