@@ -236,11 +236,14 @@ internal sealed class BookingService : IBookingService
         }
 
         Tenant tenant = _tenantContext.Tenant!;
-        DateTime tenantNow = TenantTime.Now(tenant.Timezone);
-        DateTime bookingMoment = booking.BookingDate.ToDateTime(booking.BookingTime);
-        DateTime deadline = bookingMoment.AddHours(-tenant.MinCancellationHours);
+        // Orario locale del termine ultimo (per il display), e l'ISTANTE assoluto corrispondente (per la
+        // decisione canCancel, DST-corretta — PH-5).
+        DateTime deadline = booking.BookingDate.ToDateTime(booking.BookingTime).AddHours(-tenant.MinCancellationHours);
+        DateTimeOffset deadlineInstant = TenantTime
+            .ToInstant(booking.BookingDate, booking.BookingTime, tenant.Timezone)
+            .AddHours(-tenant.MinCancellationHours);
 
-        bool canCancel = booking.Status == BookingStatus.Confirmed && tenantNow < deadline;
+        bool canCancel = booking.Status == BookingStatus.Confirmed && DateTimeOffset.UtcNow < deadlineInstant;
 
         var response = new BookingDetailResponse(
             booking.Id,
@@ -271,10 +274,12 @@ internal sealed class BookingService : IBookingService
         }
 
         Tenant tenant = _tenantContext.Tenant!;
-        DateTime tenantNow = TenantTime.Now(tenant.Timezone);
-        DateTime deadline = booking.BookingDate.ToDateTime(booking.BookingTime).AddHours(-tenant.MinCancellationHours);
+        // PH-5: confronto su istanti assoluti (DST-corretto) per decidere se il preavviso è rispettato.
+        DateTimeOffset deadlineInstant = TenantTime
+            .ToInstant(booking.BookingDate, booking.BookingTime, tenant.Timezone)
+            .AddHours(-tenant.MinCancellationHours);
 
-        if (tenantNow >= deadline)
+        if (DateTimeOffset.UtcNow >= deadlineInstant)
         {
             return Error.Forbidden("cancellation_deadline_exceeded",
                 $"Non è possibile disdire con meno di {tenant.MinCancellationHours} ore di preavviso.");
@@ -335,8 +340,10 @@ internal sealed class BookingService : IBookingService
             return Error.Validation("validation_error", "Il giorno o l'orario selezionato non è prenotabile.");
         }
 
-        DateTime bookingMoment = date.ToDateTime(time);
-        if (bookingMoment < tenantNow.AddHours(tenant.MinAdvanceHours))
+        // PH-5: confronto su istanti assoluti (DST-corretto) per l'anticipo minimo: lo slot locale è convertito
+        // nel suo istante e confrontato con "ora UTC + anticipo", invece di sommare ore in ora locale "naive".
+        DateTimeOffset bookingInstant = TenantTime.ToInstant(date, time, tenant.Timezone);
+        if (bookingInstant < DateTimeOffset.UtcNow.AddHours(tenant.MinAdvanceHours))
         {
             return Error.Validation("validation_error", "Lo slot selezionato non rispetta l'anticipo minimo di prenotazione.");
         }
