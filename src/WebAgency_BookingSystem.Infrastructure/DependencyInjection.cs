@@ -83,6 +83,10 @@ public static class DependencyInjection
         services.AddScoped<IReminderEnqueuer, ReminderEnqueuer>();
         services.AddHostedService<ReminderJob>();
 
+        // Retention/erasure GDPR (S2): logica scoped + job scheduling.
+        services.AddScoped<IDataRetentionService, DataRetentionService>();
+        services.AddHostedService<DataRetentionJob>();
+
         return services;
     }
 
