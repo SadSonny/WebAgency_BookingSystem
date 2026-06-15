@@ -11,6 +11,7 @@ using WebAgency_BookingSystem.Core.Dtos.Admin;
 using WebAgency_BookingSystem.Core.Dtos.Public;
 using WebAgency_BookingSystem.Core.Entities;
 using WebAgency_BookingSystem.Core.Enums;
+using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
 
 namespace WebAgency_BookingSystem.Infrastructure.Services.Admin;
@@ -19,12 +20,15 @@ internal sealed class AdminBookingService : IAdminBookingService
 {
     private readonly BookingSystemDbContext _db;
     private readonly ITenantContext _tenantContext;
+    private readonly IEmailOutbox _outbox;
     private readonly ILogger<AdminBookingService> _logger;
 
-    public AdminBookingService(BookingSystemDbContext db, ITenantContext tenantContext, ILogger<AdminBookingService> logger)
+    public AdminBookingService(
+        BookingSystemDbContext db, ITenantContext tenantContext, IEmailOutbox outbox, ILogger<AdminBookingService> logger)
     {
         _db = db;
         _tenantContext = tenantContext;
+        _outbox = outbox;
         _logger = logger;
     }
 
@@ -93,6 +97,7 @@ internal sealed class AdminBookingService : IAdminBookingService
             return Error.NotFound("not_found", "Prenotazione non trovata.");
         }
 
+        BookingStatus previousStatus = booking.Status;
         DateTimeOffset now = DateTimeOffset.UtcNow;
         booking.Status = newStatus;
         string action;
@@ -124,6 +129,16 @@ internal sealed class AdminBookingService : IAdminBookingService
             Actor = "owner",
             CreatedAt = now,
         });
+
+        // T2.1: se è il salone a disdire (Confirmed → Cancelled), avvisa il cliente via outbox (atomico col
+        // SaveChanges). Service è già caricato; il Tenant viene dalla cache (detached) → lo idratiamo per il
+        // renderer e lo azzeriamo subito dopo, per non farlo persistere a EF.
+        if (newStatus == BookingStatus.Cancelled && previousStatus != BookingStatus.Cancelled)
+        {
+            booking.Tenant = _tenantContext.Tenant;
+            _outbox.EnqueueCancellationConfirmation(booking);
+            booking.Tenant = null;
+        }
 
         await _db.SaveChangesAsync(ct);
         _logger.LogInformation("Admin: prenotazione {BookingId} aggiornata a stato {Status}", booking.Id, newStatus);
