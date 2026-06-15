@@ -31,6 +31,8 @@ public static class AvailabilityCalculator
     /// <param name="dayBookings">Prenotazioni confermate del giorno (qualsiasi servizio/staff).</param>
     /// <param name="tenantNow">Data/ora corrente nel timezone del tenant (per l'anticipo minimo).</param>
     /// <param name="minAdvanceHours">Anticipo minimo di prenotazione, in ore.</param>
+    /// <param name="staffBlocks">Assenze parziali dell'operatore (T1.1): intervalli "duri" che rendono non
+    /// prenotabile ogni slot sovrapposto. Rilevante solo con <paramref name="staffId"/> valorizzato.</param>
     public static IReadOnlyList<SlotResult> ComputeDay(
         DateOnly date,
         DayWindow window,
@@ -39,7 +41,8 @@ public static class AvailabilityCalculator
         Guid? staffId,
         IReadOnlyList<BookingSlot> dayBookings,
         DateTime tenantNow,
-        int minAdvanceHours)
+        int minAdvanceHours,
+        IReadOnlyList<TimeInterval>? staffBlocks = null)
     {
         int padBefore = PadBefore(service);
         int padAfter = PadAfter(service);
@@ -73,7 +76,8 @@ public static class AvailabilityCalculator
                 continue;
             }
 
-            bool available = HasCapacity(occStart, occEnd, service, serviceId, staffId, dayBookings);
+            bool available = !OverlapsAnyBlock(occStart, occEnd, staffBlocks)
+                && HasCapacity(occStart, occEnd, service, serviceId, staffId, dayBookings);
             results.Add(new SlotResult(new TimeOnly(start / 60, start % 60), available));
         }
 
@@ -91,7 +95,8 @@ public static class AvailabilityCalculator
         ServiceSlotConfig service,
         Guid serviceId,
         Guid? staffId,
-        IReadOnlyList<BookingSlot> dayBookings)
+        IReadOnlyList<BookingSlot> dayBookings,
+        IReadOnlyList<TimeInterval>? staffBlocks = null)
     {
         int padBefore = PadBefore(service);
         int padAfter = PadAfter(service);
@@ -109,7 +114,34 @@ public static class AvailabilityCalculator
             return false;
         }
 
+        if (OverlapsAnyBlock(occStart, occEnd, staffBlocks))
+        {
+            return false;
+        }
+
         return HasCapacity(occStart, occEnd, service, serviceId, staffId, dayBookings);
+    }
+
+    // WHY (T1.1): le assenze parziali sono indisponibilità "dure", non capacità. Lo slot (con buffer) non deve
+    // sovrapporsi ad alcuna fascia di assenza dell'operatore. Le fasce non ricevono il buffer del servizio.
+    private static bool OverlapsAnyBlock(int occStart, int occEnd, IReadOnlyList<TimeInterval>? blocks)
+    {
+        if (blocks is null || blocks.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (TimeInterval block in blocks)
+        {
+            int bStart = ToMinutes(block.Start);
+            int bEnd = ToMinutes(block.End);
+            if (occStart < bEnd && occEnd > bStart)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // WHY: la capacità dipende dalla presenza dello staff. Con staff, un solo appuntamento sovrapposto basta

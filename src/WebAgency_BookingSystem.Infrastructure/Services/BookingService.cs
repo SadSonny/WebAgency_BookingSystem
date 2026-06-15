@@ -327,10 +327,12 @@ internal sealed class BookingService : IBookingService
         IReadOnlyList<TenantSpecialClosure> closures = await _tenants.GetActiveSpecialClosuresAsync(tenantId, date, ct);
 
         Dictionary<DayOfWeekIndex, StaffBusinessHours> staffHoursByDay = new();
+        IReadOnlyList<StaffTimeOff> staffTimeOff = [];
         if (staffId is Guid sid)
         {
             IReadOnlyList<StaffBusinessHours> staffHours = await _staff.GetBusinessHoursAsync(sid, ct);
             staffHoursByDay = staffHours.ToDictionary(h => h.DayOfWeek);
+            staffTimeOff = await _staff.GetTimeOffInRangeAsync(sid, date, date, ct);
         }
 
         var hoursByDay = businessHours.ToDictionary(h => h.DayOfWeek);
@@ -339,6 +341,18 @@ internal sealed class BookingService : IBookingService
         {
             return Error.Validation("validation_error", "Il giorno o l'orario selezionato non è prenotabile.");
         }
+
+        // T1.1: assenza dell'operatore — giornata intera blocca del tutto; le fasce parziali sono passate al
+        // calcolatore come intervalli "duri" che invalidano gli slot sovrapposti.
+        if (staffTimeOff.Any(t => t.IsFullDay))
+        {
+            return Error.Validation("validation_error", "L'operatore selezionato non è disponibile nella data scelta.");
+        }
+
+        IReadOnlyList<TimeInterval> staffBlocks = staffTimeOff
+            .Where(t => !t.IsFullDay)
+            .Select(t => new TimeInterval(t.StartTime!.Value, t.EndTime!.Value))
+            .ToList();
 
         // PH-5: confronto su istanti assoluti (DST-corretto) per l'anticipo minimo: lo slot locale è convertito
         // nel suo istante e confrontato con "ora UTC + anticipo", invece di sommare ore in ora locale "naive".
@@ -360,7 +374,7 @@ internal sealed class BookingService : IBookingService
         var slots = dayBookings.Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
         ServiceSlotConfig config = ServiceSlotConfig.From(service);
 
-        if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, staffId, slots))
+        if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, service.Id, staffId, slots, staffBlocks))
         {
             // WHY (R-04): qui lo slot è realmente PIENO/non valido alla ri-verifica sotto lock (capacità
             // esaurita o regola oraria), distinto dalla contesa di lock loggata in CreateAsync.

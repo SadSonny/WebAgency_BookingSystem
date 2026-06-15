@@ -55,4 +55,12 @@ internal sealed class StaffRepository : IStaffRepository
             .Where(h => h.StaffId == staffId)
             .OrderBy(h => h.DayOfWeek)
             .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<StaffTimeOff>> GetTimeOffInRangeAsync(
+        Guid staffId, DateOnly fromInclusive, DateOnly toInclusive, CancellationToken ct = default) =>
+        // Intersezione di intervalli: l'assenza [DateFrom..DateTo] interseca [from..to] se DateFrom <= to && DateTo >= from.
+        await _db.StaffTimeOff
+            .AsNoTracking()
+            .Where(t => t.StaffId == staffId && t.DateFrom <= toInclusive && t.DateTo >= fromInclusive)
+            .ToListAsync(ct);
 }

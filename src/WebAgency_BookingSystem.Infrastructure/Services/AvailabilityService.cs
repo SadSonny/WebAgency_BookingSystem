@@ -88,10 +88,13 @@ internal sealed class AvailabilityService : IAvailabilityService
         IReadOnlyList<TenantSpecialClosure> closures = await _tenants.GetActiveSpecialClosuresAsync(tenantId, request.DateFrom, ct);
 
         Dictionary<DayOfWeekIndex, StaffBusinessHours> staffHoursByDay = new();
+        IReadOnlyList<StaffTimeOff> staffTimeOff = [];
         if (request.StaffId is Guid sid)
         {
             IReadOnlyList<StaffBusinessHours> staffHours = await _staff.GetBusinessHoursAsync(sid, ct);
             staffHoursByDay = staffHours.ToDictionary(h => h.DayOfWeek);
+            // T1.1: assenze dell'operatore nel range (giorni interi → giorno escluso; fasce → intervalli bloccanti).
+            staffTimeOff = await _staff.GetTimeOffInRangeAsync(sid, request.DateFrom, request.DateTo, ct);
         }
 
         IReadOnlyList<Booking> existing = request.StaffId is Guid staffFilter
@@ -113,9 +116,21 @@ internal sealed class AvailabilityService : IAvailabilityService
                 continue; // giorno chiuso / chiusura straordinaria / staff non disponibile
             }
 
+            // T1.1: assenza a giornata intera → l'operatore non lavora quel giorno (giorno escluso).
+            DateOnly d = date;
+            if (staffTimeOff.Any(t => t.IsFullDay && d >= t.DateFrom && d <= t.DateTo))
+            {
+                continue;
+            }
+
+            IReadOnlyList<TimeInterval> staffBlocks = staffTimeOff
+                .Where(t => !t.IsFullDay && d >= t.DateFrom && d <= t.DateTo)
+                .Select(t => new TimeInterval(t.StartTime!.Value, t.EndTime!.Value))
+                .ToList();
+
             IReadOnlyList<BookingSlot> dayBookings = bookingsByDate[date].ToList();
             IReadOnlyList<SlotResult> slots = AvailabilityCalculator.ComputeDay(
-                date, window, config, request.ServiceId, request.StaffId, dayBookings, tenantNow, tenant.MinAdvanceHours);
+                date, window, config, request.ServiceId, request.StaffId, dayBookings, tenantNow, tenant.MinAdvanceHours, staffBlocks);
 
             if (slots.Count == 0)
             {

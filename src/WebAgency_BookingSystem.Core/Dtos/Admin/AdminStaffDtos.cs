@@ -38,3 +38,21 @@ public sealed record StaffBusinessHoursItem(
     string? EndTime,
     string? BreakStart,
     string? BreakEnd);
+
+/// <summary>Corpo per creare un'assenza dell'operatore (T1.1). Date <c>yyyy-MM-dd</c>; orari <c>HH:mm</c> o
+/// entrambi null per giornata intera.</summary>
+public sealed record StaffTimeOffRequest(
+    string DateFrom,
+    string DateTo,
+    string? StartTime,
+    string? EndTime,
+    string? Reason);
+
+/// <summary>Assenza dell'operatore esposta all'admin.</summary>
+public sealed record StaffTimeOffResponse(
+    Guid Id,
+    string DateFrom,
+    string DateTo,
+    string? StartTime,
+    string? EndTime,
+    string? Reason);

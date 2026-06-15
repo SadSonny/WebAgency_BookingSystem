@@ -31,6 +31,7 @@ public sealed class BookingSystemDbContext : DbContext
     public DbSet<Staff> Staff => Set<Staff>();
     public DbSet<StaffService> StaffServices => Set<StaffService>();
     public DbSet<StaffBusinessHours> StaffBusinessHours => Set<StaffBusinessHours>();
+    public DbSet<StaffTimeOff> StaffTimeOff => Set<StaffTimeOff>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<User> Users => Set<User>();
@@ -58,6 +59,7 @@ public sealed class BookingSystemDbContext : DbContext
         modelBuilder.Entity<TenantSpecialClosure>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<StaffService>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<StaffBusinessHours>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
+        modelBuilder.Entity<StaffTimeOff>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<Booking>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<AuditLog>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
         modelBuilder.Entity<User>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);

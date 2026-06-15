@@ -123,6 +123,103 @@ internal sealed class AdminStaffManager : IAdminStaffManager
         return Result.Success();
     }
 
+    public async Task<Result<IReadOnlyList<StaffTimeOffResponse>>> ListTimeOffAsync(Guid staffId, CancellationToken ct = default)
+    {
+        if (!await _db.Staff.AnyAsync(s => s.Id == staffId, ct))
+        {
+            return Error.NotFound("not_found", "Staff non trovato.");
+        }
+
+        List<StaffTimeOff> items = await _db.StaffTimeOff
+            .AsNoTracking()
+            .Where(t => t.StaffId == staffId)
+            .OrderBy(t => t.DateFrom).ThenBy(t => t.StartTime)
+            .ToListAsync(ct);
+
+        IReadOnlyList<StaffTimeOffResponse> response = items.Select(MapTimeOff).ToList();
+        return Result.Success(response);
+    }
+
+    public async Task<Result<StaffTimeOffResponse>> AddTimeOffAsync(
+        Guid staffId, StaffTimeOffRequest request, CancellationToken ct = default)
+    {
+        if (!await _db.Staff.AnyAsync(s => s.Id == staffId, ct))
+        {
+            return Error.NotFound("not_found", "Staff non trovato.");
+        }
+
+        if (!DateOnly.TryParseExact(request.DateFrom, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly from)
+            || !DateOnly.TryParseExact(request.DateTo, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly to))
+        {
+            return Error.Validation("validation_error", "Date non valide. Usare yyyy-MM-dd.");
+        }
+
+        if (from > to)
+        {
+            return Error.Validation("validation_error", "dateFrom non può essere successivo a dateTo.");
+        }
+
+        // WHY: o entrambi gli orari (fascia parziale) o nessuno (giornata intera): un solo orario è ambiguo.
+        bool hasStart = !string.IsNullOrWhiteSpace(request.StartTime);
+        bool hasEnd = !string.IsNullOrWhiteSpace(request.EndTime);
+        if (hasStart != hasEnd)
+        {
+            return Error.Validation("validation_error", "Specifica sia startTime sia endTime, oppure nessuno (giornata intera).");
+        }
+
+        TimeOnly? start = ToTime(request.StartTime);
+        TimeOnly? end = ToTime(request.EndTime);
+        if (start is not null && end is not null && start >= end)
+        {
+            return Error.Validation("validation_error", "startTime deve precedere endTime.");
+        }
+
+        Guid tenantId = _tenantContext.TenantId!.Value;
+        var timeOff = new StaffTimeOff
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            StaffId = staffId,
+            DateFrom = from,
+            DateTo = to,
+            StartTime = start,
+            EndTime = end,
+            Reason = request.Reason,
+        };
+        _db.StaffTimeOff.Add(timeOff);
+
+        await _db.SaveChangesAsync(ct);
+        _cache.Invalidate(tenantId); // la disponibilità dipende dalle assenze
+
+        _logger.LogInformation("Admin: assenza {TimeOffId} aggiunta a staff {StaffId}", timeOff.Id, staffId);
+        return Result.Success(MapTimeOff(timeOff));
+    }
+
+    public async Task<Result> DeleteTimeOffAsync(Guid staffId, Guid timeOffId, CancellationToken ct = default)
+    {
+        StaffTimeOff? timeOff = await _db.StaffTimeOff
+            .FirstOrDefaultAsync(t => t.Id == timeOffId && t.StaffId == staffId, ct);
+        if (timeOff is null)
+        {
+            return Error.NotFound("not_found", "Assenza non trovata.");
+        }
+
+        _db.StaffTimeOff.Remove(timeOff);
+        await _db.SaveChangesAsync(ct);
+        _cache.Invalidate(_tenantContext.TenantId!.Value);
+
+        _logger.LogInformation("Admin: assenza {TimeOffId} eliminata da staff {StaffId}", timeOffId, staffId);
+        return Result.Success();
+    }
+
+    private static StaffTimeOffResponse MapTimeOff(StaffTimeOff t) => new(
+        t.Id,
+        t.DateFrom.ToString("yyyy-MM-dd"),
+        t.DateTo.ToString("yyyy-MM-dd"),
+        t.StartTime?.ToString("HH:mm"),
+        t.EndTime?.ToString("HH:mm"),
+        t.Reason);
+
     private async Task<Result> ValidateServiceIdsAsync(StaffWriteRequest request, CancellationToken ct)
     {
         List<Guid> requested = request.Services?.Select(s => s.ServiceId).Distinct().ToList() ?? [];

@@ -48,3 +48,9 @@ public sealed record BookingSlot(
 /// Risultato di uno slot calcolato: orario di inizio e disponibilità.
 /// </summary>
 public sealed record SlotResult(TimeOnly Time, bool Available);
+
+/// <summary>
+/// Intervallo orario di indisponibilità "dura" di un operatore (assenza parziale, T1.1): a differenza di una
+/// prenotazione non concorre alla capacità, ma rende non prenotabile qualunque slot che vi si sovrapponga.
+/// </summary>
+public sealed record TimeInterval(TimeOnly Start, TimeOnly End);

@@ -27,4 +27,11 @@ public interface IStaffRepository
     /// (in tal caso la disponibilità usa gli orari del tenant).
     /// </summary>
     Task<IReadOnlyList<StaffBusinessHours>> GetBusinessHoursAsync(Guid staffId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Restituisce le assenze dell'operatore (T1.1) che intersecano il range [fromInclusive, toInclusive].
+    /// Usato dalla disponibilità per escludere giorni interi e fasce orarie indisponibili.
+    /// </summary>
+    Task<IReadOnlyList<StaffTimeOff>> GetTimeOffInRangeAsync(
+        Guid staffId, DateOnly fromInclusive, DateOnly toInclusive, CancellationToken ct = default);
 }

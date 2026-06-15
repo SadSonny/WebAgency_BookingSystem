@@ -24,4 +24,13 @@ public interface IAdminStaffManager
 
     /// <summary>Elimina (soft delete) un membro dello staff. 404 se non trovato.</summary>
     Task<Result> DeleteAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Elenca le assenze (T1.1) di un operatore. 404 se l'operatore non esiste.</summary>
+    Task<Result<IReadOnlyList<StaffTimeOffResponse>>> ListTimeOffAsync(Guid staffId, CancellationToken ct = default);
+
+    /// <summary>Aggiunge un'assenza all'operatore. 404 se non esiste, 422 se date/orari non validi.</summary>
+    Task<Result<StaffTimeOffResponse>> AddTimeOffAsync(Guid staffId, StaffTimeOffRequest request, CancellationToken ct = default);
+
+    /// <summary>Elimina un'assenza dell'operatore. 404 se assenza/operatore non trovati.</summary>
+    Task<Result> DeleteTimeOffAsync(Guid staffId, Guid timeOffId, CancellationToken ct = default);
 }

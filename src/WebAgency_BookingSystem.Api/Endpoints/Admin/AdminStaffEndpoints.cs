@@ -78,6 +78,47 @@ internal static class AdminStaffEndpoints
         .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
 
+        // ── Assenze operatore (T1.1) ────────────────────────────────────────────
+        group.MapGet("/{id:guid}/time-off", async (Guid id, IAdminStaffManager manager, CancellationToken ct) =>
+        {
+            var result = await manager.ListTimeOffAsync(id, ct);
+            return result.Match(list => Results.Ok(list));
+        })
+        .WithName("AdminListStaffTimeOff")
+        .WithSummary("Assenze operatore (admin)")
+        .WithDescription("Elenca le assenze (ferie, malattia, permessi) di un operatore.")
+        .Produces<IReadOnlyList<StaffTimeOffResponse>>(StatusCodes.Status200OK)
+        .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/time-off", async (
+            Guid id, StaffTimeOffRequest request, IAdminStaffManager manager, CancellationToken ct) =>
+        {
+            var result = await manager.AddTimeOffAsync(id, request, ct);
+            return result.IsSuccess
+                ? Results.Json(result.Value, statusCode: StatusCodes.Status201Created)
+                : result.Error.ToErrorResult();
+        })
+        .WithName("AdminAddStaffTimeOff")
+        .WithSummary("Aggiungi assenza operatore (admin)")
+        .WithDescription("Crea un'assenza: giornata intera (orari null) o fascia oraria (startTime+endTime).")
+        .Produces<StaffTimeOffResponse>(StatusCodes.Status201Created)
+        .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound)
+        .Produces<ErrorResponse>(StatusCodes.Status422UnprocessableEntity);
+
+        group.MapDelete("/{id:guid}/time-off/{timeOffId:guid}", async (
+            Guid id, Guid timeOffId, IAdminStaffManager manager, CancellationToken ct) =>
+        {
+            var result = await manager.DeleteTimeOffAsync(id, timeOffId, ct);
+            return result.IsSuccess ? Results.NoContent() : result.Error.ToErrorResult();
+        })
+        .WithName("AdminDeleteStaffTimeOff")
+        .WithSummary("Elimina assenza operatore (admin)")
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+
         return app;
     }
 }
