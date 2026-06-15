@@ -34,4 +34,16 @@ public interface IStaffRepository
     /// </summary>
     Task<IReadOnlyList<StaffTimeOff>> GetTimeOffInRangeAsync(
         Guid staffId, DateOnly fromInclusive, DateOnly toInclusive, CancellationToken ct = default);
+
+    /// <summary>(P1/P2) Orari settimanali di PIÙ operatori in un'unica query.</summary>
+    Task<IReadOnlyList<StaffBusinessHours>> GetBusinessHoursForStaffAsync(
+        IReadOnlyCollection<Guid> staffIds, CancellationToken ct = default);
+
+    /// <summary>(P1/P2) Assenze di PIÙ operatori che intersecano il range, in un'unica query.</summary>
+    Task<IReadOnlyList<StaffTimeOff>> GetTimeOffForStaffInRangeAsync(
+        IReadOnlyCollection<Guid> staffIds, DateOnly fromInclusive, DateOnly toInclusive, CancellationToken ct = default);
+
+    /// <summary>(P2) Sottoinsieme di <paramref name="staffIds"/> che esegue TUTTI i <paramref name="serviceIds"/>, in un'unica query.</summary>
+    Task<IReadOnlySet<Guid>> GetStaffExecutingAllAsync(
+        IReadOnlyCollection<Guid> staffIds, IReadOnlyCollection<Guid> serviceIds, CancellationToken ct = default);
 }

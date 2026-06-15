@@ -16,6 +16,13 @@ public sealed class BookingSystemFactory : WebApplicationFactory<Program>
     public BookingSystemFactory(string connectionString)
     {
         _connectionString = connectionString;
+
+        // WHY: i limiti di rate vengono letti da Program.cs in fase di registrazione servizi, dove la config
+        // in-memory del factory non è sempre già applicata. Le variabili d'ambiente (lette da CreateBuilder e
+        // controllate per prime) sono garantite: le alziamo per non triggerare 429 durante la suite.
+        Environment.SetEnvironmentVariable("RATE_LIMIT_PER_MINUTE", "100000");
+        Environment.SetEnvironmentVariable("RATE_LIMIT_IP_PER_MINUTE", "100000");
+        Environment.SetEnvironmentVariable("RATE_LIMIT_BOOKING_PER_MINUTE", "100000");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

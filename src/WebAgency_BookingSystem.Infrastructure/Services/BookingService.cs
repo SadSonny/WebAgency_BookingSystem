@@ -583,17 +583,32 @@ internal sealed class BookingService : IBookingService
             return Result.Success<Guid?>(null);
         }
 
-        // Auto-assegnazione: il primo operatore che esegue TUTTI i servizi ed è libero per il blocco continuo.
-        foreach (Staff candidate in qualified)
+        // P2: auto-assegnazione efficiente. Una sola query individua chi esegue TUTTI i servizi; poi carichiamo
+        // orari/assenze/prenotazioni dei soli candidati in 3 query e scegliamo il primo libero in memoria.
+        List<Guid> candidateIds = qualified.Select(s => s.Id).ToList();
+        IReadOnlySet<Guid> executesAll = await _staff.GetStaffExecutingAllAsync(candidateIds, allServiceIds, ct);
+        List<Guid> candidates = candidateIds.Where(executesAll.Contains).ToList();
+        if (candidates.Count == 0)
         {
-            if (!await ExecutesAllAsync(candidate.Id, allServiceIds, ct))
-            {
-                continue;
-            }
+            return SlotUnavailableError(primaryServiceId, date, time);
+        }
 
-            if (await IsStaffSlotBookableAsync(candidate.Id, primaryServiceId, date, time, hoursByDay, closures, config, ct))
+        ILookup<Guid, StaffBusinessHours> hoursByStaff =
+            (await _staff.GetBusinessHoursForStaffAsync(candidates, ct)).ToLookup(h => h.StaffId);
+        ILookup<Guid, StaffTimeOff> timeOffByStaff =
+            (await _staff.GetTimeOffForStaffInRangeAsync(candidates, date, date, ct)).ToLookup(t => t.StaffId);
+        ILookup<Guid, BookingSlot> slotsByStaff =
+            (await _bookings.GetConfirmedByStaffIdsInRangeAsync(candidates, date, date, ct))
+                .ToLookup(b => b.StaffId!.Value, b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId));
+
+        foreach (Guid candidateId in candidates)
+        {
+            if (IsSlotBookableInMemory(candidateId, primaryServiceId, date, time, hoursByDay, closures, config,
+                    hoursByStaff[candidateId].ToDictionary(h => h.DayOfWeek),
+                    timeOffByStaff[candidateId].ToList(),
+                    slotsByStaff[candidateId].ToList()))
             {
-                return Result.Success<Guid?>(candidate.Id);
+                return Result.Success<Guid?>(candidateId);
             }
         }
 
@@ -650,22 +665,18 @@ internal sealed class BookingService : IBookingService
         return Result.Success();
     }
 
-    // True se lo slot (blocco continuo, durata totale) è prenotabile per l'operatore indicato. Usata
-    // dall'auto-assegnazione "qualsiasi operatore": non distingue i motivi, serve solo a scegliere chi è libero.
-    private async Task<bool> IsStaffSlotBookableAsync(
+    // True se lo slot (blocco continuo, durata totale) è prenotabile per l'operatore indicato, usando dati GIÀ
+    // caricati (P2): nessuna query. Usata dall'auto-assegnazione "qualsiasi operatore" per scegliere chi è libero.
+    private static bool IsSlotBookableInMemory(
         Guid staffId, Guid primaryServiceId, DateOnly date, TimeOnly time,
         Dictionary<DayOfWeekIndex, TenantBusinessHours> hoursByDay, IReadOnlyList<TenantSpecialClosure> closures,
-        ServiceSlotConfig config, CancellationToken ct)
+        ServiceSlotConfig config,
+        Dictionary<DayOfWeekIndex, StaffBusinessHours> staffHoursByDay,
+        IReadOnlyList<StaffTimeOff> timeOff,
+        IReadOnlyList<BookingSlot> daySlots)
     {
-        var staffHoursByDay = (await _staff.GetBusinessHoursAsync(staffId, ct)).ToDictionary(h => h.DayOfWeek);
         DayWindow? window = HoursResolver.ResolveWindow(date, hoursByDay, staffHoursByDay, closures, staffId);
-        if (window is null)
-        {
-            return false;
-        }
-
-        IReadOnlyList<StaffTimeOff> timeOff = await _staff.GetTimeOffInRangeAsync(staffId, date, date, ct);
-        if (timeOff.Any(t => t.IsFullDay))
+        if (window is null || timeOff.Any(t => t.IsFullDay))
         {
             return false;
         }
@@ -675,10 +686,7 @@ internal sealed class BookingService : IBookingService
             .Select(t => new TimeInterval(t.StartTime!.Value, t.EndTime!.Value))
             .ToList();
 
-        var slots = (await _bookings.GetConfirmedByStaffInRangeAsync(staffId, date, date, ct))
-            .Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
-
-        return AvailabilityCalculator.IsSlotAvailable(time, window, config, primaryServiceId, staffId, slots, blocks);
+        return AvailabilityCalculator.IsSlotAvailable(time, window, config, primaryServiceId, staffId, daySlots, blocks);
     }
 
     // WHY (T1.3): per un appuntamento multi-servizio (un operatore) il blocco occupato è la durata TOTALE; il

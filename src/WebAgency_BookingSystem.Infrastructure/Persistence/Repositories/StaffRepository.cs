@@ -63,4 +63,33 @@ internal sealed class StaffRepository : IStaffRepository
             .AsNoTracking()
             .Where(t => t.StaffId == staffId && t.DateFrom <= toInclusive && t.DateTo >= fromInclusive)
             .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<StaffBusinessHours>> GetBusinessHoursForStaffAsync(
+        IReadOnlyCollection<Guid> staffIds, CancellationToken ct = default) =>
+        await _db.StaffBusinessHours
+            .AsNoTracking()
+            .Where(h => staffIds.Contains(h.StaffId))
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<StaffTimeOff>> GetTimeOffForStaffInRangeAsync(
+        IReadOnlyCollection<Guid> staffIds, DateOnly fromInclusive, DateOnly toInclusive, CancellationToken ct = default) =>
+        await _db.StaffTimeOff
+            .AsNoTracking()
+            .Where(t => staffIds.Contains(t.StaffId) && t.DateFrom <= toInclusive && t.DateTo >= fromInclusive)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlySet<Guid>> GetStaffExecutingAllAsync(
+        IReadOnlyCollection<Guid> staffIds, IReadOnlyCollection<Guid> serviceIds, CancellationToken ct = default)
+    {
+        // Conta per operatore quanti dei servizi richiesti esegue; chi li esegue tutti ha count == serviceIds.Count.
+        int required = serviceIds.Count;
+        List<Guid> matching = await _db.StaffServices
+            .AsNoTracking()
+            .Where(ss => staffIds.Contains(ss.StaffId) && serviceIds.Contains(ss.ServiceId))
+            .GroupBy(ss => ss.StaffId)
+            .Where(g => g.Select(x => x.ServiceId).Distinct().Count() == required)
+            .Select(g => g.Key)
+            .ToListAsync(ct);
+        return matching.ToHashSet();
+    }
 }

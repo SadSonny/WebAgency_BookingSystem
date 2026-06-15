@@ -137,11 +137,24 @@ internal sealed class AvailabilityService : IAvailabilityService
             return Result.Success<IReadOnlyList<AvailabilityDayResponse>>(days);
         }
 
-        // Aggregazione per operatore: un orario è disponibile se lo è per ALMENO un operatore qualificato.
+        // P1: carichiamo orari/assenze/prenotazioni di TUTTI gli operatori in 3 query e raggruppiamo in memoria,
+        // invece di 3 query per operatore. La disponibilità "qualsiasi" è poi calcolata per ciascuno senza altre query.
+        ILookup<Guid, StaffBusinessHours> hoursByStaff =
+            (await _staff.GetBusinessHoursForStaffAsync(staffIds, ct)).ToLookup(h => h.StaffId);
+        ILookup<Guid, StaffTimeOff> timeOffByStaff =
+            (await _staff.GetTimeOffForStaffInRangeAsync(staffIds, request.DateFrom, request.DateTo, ct)).ToLookup(t => t.StaffId);
+        ILookup<Guid, Booking> bookingsByStaff =
+            (await _bookings.GetConfirmedByStaffIdsInRangeAsync(staffIds, request.DateFrom, request.DateTo, ct)).ToLookup(b => b.StaffId!.Value);
+
         var merged = new SortedDictionary<DateOnly, SortedDictionary<TimeOnly, bool>>();
         foreach (Guid qualifiedStaffId in staffIds)
         {
-            await AccumulateStaffAsync(qualifiedStaffId, request, hoursByDay, closures, config, tenant, tenantNow, merged, ct);
+            AccumulateStaff(qualifiedStaffId, request, hoursByDay, closures, config, tenant, tenantNow,
+                hoursByStaff[qualifiedStaffId].ToDictionary(h => h.DayOfWeek),
+                timeOffByStaff[qualifiedStaffId].ToList(),
+                bookingsByStaff[qualifiedStaffId].ToLookup(b => b.BookingDate,
+                    b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)),
+                merged);
         }
 
         foreach ((DateOnly date, SortedDictionary<TimeOnly, bool> slotMap) in merged)
@@ -160,22 +173,18 @@ internal sealed class AvailabilityService : IAvailabilityService
         return Result.Success<IReadOnlyList<AvailabilityDayResponse>>(days);
     }
 
-    // Calcola la disponibilità di UN operatore nel range (orari/assenze/prenotazioni propri) e la fonde in OR
-    // nella mappa per data→orario→disponibile. Riusa l'algoritmo puro per-staff.
-    private async Task AccumulateStaffAsync(
+    // Calcola la disponibilità di UN operatore nel range (orari/assenze/prenotazioni GIÀ caricati) e la fonde
+    // in OR nella mappa per data→orario→disponibile. Riusa l'algoritmo puro per-staff. Nessuna query (P1).
+    private static void AccumulateStaff(
         Guid staffId, AvailabilityRequest request,
         Dictionary<DayOfWeekIndex, TenantBusinessHours> hoursByDay,
         IReadOnlyList<TenantSpecialClosure> closures,
         ServiceSlotConfig config, Tenant tenant, DateTime tenantNow,
-        SortedDictionary<DateOnly, SortedDictionary<TimeOnly, bool>> merged, CancellationToken ct)
+        Dictionary<DayOfWeekIndex, StaffBusinessHours> staffHoursByDay,
+        IReadOnlyList<StaffTimeOff> timeOff,
+        ILookup<DateOnly, BookingSlot> bookingsByDate,
+        SortedDictionary<DateOnly, SortedDictionary<TimeOnly, bool>> merged)
     {
-        IReadOnlyList<StaffBusinessHours> staffHours = await _staff.GetBusinessHoursAsync(staffId, ct);
-        Dictionary<DayOfWeekIndex, StaffBusinessHours> staffHoursByDay = staffHours.ToDictionary(h => h.DayOfWeek);
-        IReadOnlyList<StaffTimeOff> timeOff = await _staff.GetTimeOffInRangeAsync(staffId, request.DateFrom, request.DateTo, ct);
-        IReadOnlyList<Booking> bookings = await _bookings.GetConfirmedByStaffInRangeAsync(staffId, request.DateFrom, request.DateTo, ct);
-        ILookup<DateOnly, BookingSlot> bookingsByDate = bookings
-            .ToLookup(b => b.BookingDate, b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId));
-
         for (DateOnly date = request.DateFrom; date <= request.DateTo; date = date.AddDays(1))
         {
             DayWindow? window = HoursResolver.ResolveWindow(date, hoursByDay, staffHoursByDay, closures, staffId);

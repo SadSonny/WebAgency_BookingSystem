@@ -40,6 +40,16 @@ internal sealed class BookingRepository : IBookingRepository
                 && b.BookingDate <= toInclusive)
             .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<Booking>> GetConfirmedByStaffIdsInRangeAsync(
+        IReadOnlyCollection<Guid> staffIds, DateOnly fromInclusive, DateOnly toInclusive, CancellationToken ct = default) =>
+        await _db.Bookings
+            .Where(b => b.StaffId != null
+                && staffIds.Contains(b.StaffId.Value)
+                && b.Status == BookingStatus.Confirmed
+                && b.BookingDate >= fromInclusive
+                && b.BookingDate <= toInclusive)
+            .ToListAsync(ct);
+
     public Task<Booking?> GetByIdAndTokenAsync(Guid bookingId, Guid token, CancellationToken ct = default) =>
         // WHY (R-28): IgnoreQueryFilters per includere Service/Staff anche se SOFT-DELETED (vista storica del
         // dettaglio: il nome del servizio/staff deve restare visibile). Lo scoping per tenant è preservato in

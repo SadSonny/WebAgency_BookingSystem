@@ -25,6 +25,10 @@ public interface IBookingRepository
     Task<IReadOnlyList<Booking>> GetConfirmedByStaffInRangeAsync(
         Guid staffId, DateOnly fromInclusive, DateOnly toInclusive, CancellationToken ct = default);
 
+    /// <summary>(P1/P2) Prenotazioni confermate di PIÙ staff nell'intervallo, in un'unica query.</summary>
+    Task<IReadOnlyList<Booking>> GetConfirmedByStaffIdsInRangeAsync(
+        IReadOnlyCollection<Guid> staffIds, DateOnly fromInclusive, DateOnly toInclusive, CancellationToken ct = default);
+
     /// <summary>
     /// Restituisce la prenotazione che combacia con id + cancellation token, oppure null. La verifica
     /// del token avviene a livello query per non rivelare l'esistenza dell'id con token errato.
