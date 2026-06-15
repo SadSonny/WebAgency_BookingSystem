@@ -1,6 +1,15 @@
 # Development Plan — WebAgency BookingSystem
 
-## Stato: V2.1 SALONE REALE (Tier 1+2) COMPLETATO (2026-06-15)
+## Stato: V2.2 HARDENING (performance + sicurezza) COMPLETATO (2026-06-15)
+
+> **V1 + V2 email + PH-1..PH-5 + V2.1 salone reale + V2.2 hardening.** Build verde (0 warning), **120 test
+> verdi** (95 unit + 25 integration). V2.2 (2026-06-15): batch disponibilità/booking (P1/P2), reminder
+> finestra+indice (P3), paginazione admin (P4); rate-limit creazione per chiave (S1), retention/erasure GDPR
+> (S2), lockout login admin (S3), rotazione/revoca API key (S4), guard JWT prod (S5). `DbContext` pooling escluso.
+> **→ Prossimo:** Railway deploy (env `EMAIL_PROVIDER=Brevo`/`BREVO_*`, JWT_SECRET reale; applicare TUTTE le
+> migration). Vedi §V2.2 e §V2.1 per i dettagli.
+
+## (storico) Stato: V2.1 SALONE REALE (Tier 1+2) COMPLETATO (2026-06-15)
 
 > **V1 + V2 email + hardening PH-1..PH-5 + V2.1 salone reale**: infra, Core, Infrastructure, middleware, endpoint
 > pubblici (5.1–5.8), Admin API (6.1–6.14), CLI provisioning (7.x), email transazionale (Sez. 8), hardening
@@ -219,28 +228,23 @@ email multi-servizio, reschedule admin. Poi 8.7 (branding). **NON** è prevista 
 > ESCLUSO di proposito (vedi PH-5/R-24). i18n non incluso in questa fase.
 
 ### Performance
-- [ ] **P1 Batch disponibilità "qualsiasi operatore"**: `AvailabilityService.AccumulateStaffAsync` fa 3 query per
-  operatore (orari/assenze/prenotazioni). Caricarle in **3 query totali** per tutti gli operatori (`WHERE
-  staff_id IN (...)`) e raggruppare in memoria.
-- [ ] **P2 Batch booking "qualsiasi"**: `ResolveStaffAsync` cicla N operatori con `ExecutesAllAsync` (M query) +
-  3 query slot. Ridurre a ~poche query: executes-all con un solo `IN`, batch di orari/assenze/prenotazioni.
-- [ ] **P3 Reminder: finestra + indice**: `ReminderEnqueuer` scandisce tutte le prenotazioni future. Restringere
-  alla finestra max di anticipo e aggiungere indice `(status, reminder_sent_at, booking_date)`.
-- [ ] **P4 Paginazione `GET /admin/bookings`**: oggi ritorna tutto. Aggiungere `page`/`pageSize` (default 50,
-  max 200) e risposta paginata.
+- [x] **P1 Batch disponibilità "qualsiasi operatore"**: `AvailabilityService` carica orari/assenze/prenotazioni di
+  tutti gli operatori in **3 query** (poi calcolo in memoria, `AccumulateStaff` sincrono).
+- [x] **P2 Batch booking "qualsiasi"**: `ResolveStaffAsync` usa `GetStaffExecutingAllAsync` (1 query) + 3 batch +
+  scelta in memoria (`IsSlotBookableInMemory`), invece di N·(M+3) query.
+- [x] **P3 Reminder: finestra + indice**: finestra di scan limitata all'anticipo massimo dei tenant attivi
+  (uscita anticipata se nessuno) + indice `(status, reminder_sent_at, booking_date)` (migration AddReminderScanIndex).
+- [x] **P4 Paginazione `GET /admin/bookings`**: `page`/`pageSize` (default 50, max 200) + `PagedResponse<T>`.
 
 ### Sicurezza
-- [ ] **S1 Rate limit creazione prenotazioni per API key**: policy dedicata su `POST /bookings` (limite più
-  basso, per chiave) contro lo spam con chiave pubblica esposta.
-- [ ] **S2 GDPR retention/erasure**: job che **anonimizza** i dati personali (nome/telefono/email/note) delle
-  prenotazioni oltre la retention (`Gdpr:RetentionDays`, default 365) e **purga** gli `OutboxEmail` inviati
-  oltre N giorni (contengono PII nell'HTML).
-- [ ] **S3 Lockout login admin**: tentativi falliti + blocco temporaneo (campi `User.FailedAccessCount`/
-  `LockoutEnd`), oltre al rate-limit per IP; risposta invariata per non rivelare gli account esistenti.
-- [ ] **S4 Rotazione/revoca API key**: Admin API `GET/POST/DELETE /admin/api-keys` (genera nuova chiave mostrata
-  una volta, lista per prefisso, revoca). La revoca è effettiva entro la TTL cache (60s).
-- [ ] **S5 Guard JWT secret in produzione**: all'avvio in Production fallire se il secret è il placeholder dev
-  (`change-me`) o troppo corto — evita deploy con segreto debole.
+- [x] **S1 Rate limit creazione prenotazioni per API key**: policy `BookingCreation` su `POST /bookings`
+  (`RateLimiting:BookingPerMinute`, default 10) + GlobalLimiter per IP.
+- [x] **S2 GDPR retention/erasure**: `DataRetentionJob`/`IDataRetentionService` — anonimizza le PII delle
+  prenotazioni oltre `Gdpr:RetentionDays` (365) e purga gli `OutboxEmail` inviati oltre `Gdpr:OutboxRetentionDays` (30).
+- [x] **S3 Lockout login admin**: `User.FailedAccessCount`/`LockoutEnd` (migration AddUserLockout); 5 tentativi →
+  blocco 15 min; risposta 401 invariata.
+- [x] **S4 Rotazione/revoca API key**: `GET/POST/DELETE /admin/api-keys`; revoca rimuove subito la voce di cache.
+- [x] **S5 Guard JWT secret in produzione**: avvio fallisce in Production se il secret è il placeholder `change-me`.
 
 > **Stato: pianificazione differita.** Non si parte finché V2 (email) e deploy non sono stabili.
 > NON è una Admin UI per i tenant (quella non esiste, vedi AD-09). È uno strumento **interno** per noi dev,
@@ -318,6 +322,7 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-13 | Test | 9.7 (D-10): `BufferTests` integration — ServizioBuffer (30min, After, 15min): 10:00→201, 10:30→409 (dentro buffer), 10:45→201 (fuori buffer). `SeedAsync` esteso con `EnsureLaterSeedAsync` per container reuse. Suite totale: **59 test verdi**. |
 | 2026-06-13 | Feature | `ExpiredBookingCleanupJob`: BackgroundService che ogni 60 min (configurabile `CleanupJob:IntervalMinutes`) segna NoShow le prenotazioni Confirmed scadute nel timezone del tenant. `IgnoreQueryFilters()` per operazione cross-tenant. Aggiunto `Microsoft.Extensions.Hosting.Abstractions 10.0.0`. Build 0 warning. |
 | 2026-06-14 | Email V2 | **Sezione 8 completata.** Sottosistema email multi-provider (AD-10/AD-11): renderer template HTML inline italiani (conferma/notifica titolare/disdetta), `MailpitEmailService` (SMTP/MailKit, dev) + `BrevoEmailClient` (REST, prod) dietro `RenderedEmailService`, switch per ambiente via `Email:Provider`. Invio fire-and-forget post-commit in `BookingService`. Mailpit nel docker-compose. Test: +14 unit (renderer+settings) e +1 integration smoke Mailpit. **76 test verdi** (62 unit + 14 integration), build 0 warning. Branding template rimandato (8.7). |
+| 2026-06-15 | Hardening V2.2 | **Performance P1-P4 + Sicurezza S1-S5 completati**: batch disponibilità/booking "qualsiasi" (P1/P2), reminder finestra+indice (P3), paginazione admin bookings (P4); rate-limit creazione per chiave (S1), retention/erasure GDPR (S2), lockout login admin (S3), rotazione/revoca API key (S4), guard JWT prod (S5). 2 migration (AddReminderScanIndex, AddUserLockout). Build 0 warning, **120 test verdi** (95 unit + 25 integration). DbContext pooling escluso (R-24). |
 | 2026-06-15 | Salone reale | **V2.1 Tier 1+2 completati**: assenze operatore StaffTimeOff (T1.1), "qualsiasi operatore" con disponibilità aggregata + auto-assegnazione (T1.2), appuntamento multi-servizio un operatore BookingItem (T1.3), cancellazione admin notifica cliente (T2.1), reschedule cliente via token (T2.2), reminder pre-appuntamento configurabile (T2.3). 3 migration (StaffTimeOff, BookingItems, ReminderFields). Build 0 warning, **119 test verdi** (95 unit + 24 integration). Follow-up: disponibilità combinata combo, template email multi-servizio, reschedule admin. |
 | 2026-06-15 | Hardening | **PH-1..PH-5 completati**: CORS per-tenant dinamico dai siteUrl (catalogo + refresh job); advisory lock bloccante con lock_timeout anti-409-spurio su parallelSlots>1 (R-17); email outbox transazionale con dispatcher/retry, refactor trasporto IEmailSender + migration AddEmailOutbox (R-25); user-secrets dev (R-16); confronti DST-corretti via TenantTime.ToInstant (R-32); pooling (R-24) non implementato di proposito con motivazione. Build 0 warning, **103 test verdi** (87 unit + 16 integration). |
 | 2026-06-14 | Direzione | Confermato prodotto **API-only senza Admin UI** (AD-09). Aggiunta **Sezione 10** (dashboard interna dev per observability cross-tenant), rimandata. Avvio V2 email Brevo. |

@@ -15,6 +15,7 @@
     { "name": "staffId", "value": "" },
     { "name": "bookingId", "value": "" },
     { "name": "cancellationToken", "value": "" },
+    { "name": "apiKeyId", "value": "" },
     { "name": "date", "value": "2026-06-22" },
     { "name": "time", "value": "10:00" },
     { "name": "dateFrom", "value": "2026-06-22" },

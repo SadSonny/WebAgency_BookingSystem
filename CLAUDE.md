@@ -10,7 +10,9 @@
 > Build `dotnet build` verde (0 warning, analyzer + warnings-as-errors). 41 unit test verdi.
 > Tutti gli endpoint validati a runtime con Docker. Nessun bug trovato.
 
-**Fase attuale:** V1 + **V2 email** + **hardening PH-1..PH-5** + **V2.1 salone reale Tier 1+2** (2026-06-15). **119 test verdi** (95 unit + 24 integration).
+**Fase attuale:** V1 + **V2 email** + **hardening PH-1..PH-5** + **V2.1 salone reale** + **V2.2 hardening perf/sicurezza** (2026-06-15). **120 test verdi** (95 unit + 25 integration).
+
+**V2.2 — Hardening (2026-06-15):** Performance — batch query per disponibilità/booking "qualsiasi operatore" (P1/P2), reminder con finestra di scan ristretta + indice (P3), **paginazione** `GET /admin/bookings` (`page`/`pageSize`, `PagedResponse<T>`) (P4). Sicurezza — rate-limit dedicato sulla **creazione** prenotazioni per API key (`RateLimiting:BookingPerMinute`, default 10) (S1); **retention/erasure GDPR** (`DataRetentionJob`: anonimizza PII prenotazioni oltre `Gdpr:RetentionDays`=365, purga outbox inviate oltre `Gdpr:OutboxRetentionDays`=30) (S2); **lockout login admin** (5 tentativi → 15 min, campi `User.FailedAccessCount`/`LockoutEnd`) (S3); **rotazione/revoca API key** via `GET/POST/DELETE /admin/api-keys` (S4); **guard JWT** in produzione (S5). `DbContext` pooling escluso (R-24). 2 migration nuove (`AddReminderScanIndex`, `AddUserLockout`).
 
 **V2.1 — Salone reale (2026-06-15):** assenze per operatore (`StaffTimeOff`, admin `/admin/staff/{id}/time-off`); **"qualsiasi operatore" auto-assegnato** con disponibilità aggregata sulle agende reali (`parallelSlots` solo per servizi senza operatori); **appuntamento multi-servizio** un operatore (`POST /bookings` con `additionalServiceIds`, durata/prezzo sommati, `BookingItem`); cancellazione admin → email cliente; **reschedule** cliente (`PUT /bookings/{id}/reschedule?token=`); **reminder** pre-appuntamento (`Tenant.ReminderHoursBefore`, default 24). 3 migration nuove. Follow-up: disponibilità combinata combo, template email multi-servizio, reschedule admin. Dettagli in `Claude_Instructions/DEVELOPMENT_PLAN.md` §V2.1.
 

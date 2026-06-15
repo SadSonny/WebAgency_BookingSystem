@@ -225,6 +225,30 @@
       "body": { "type": "json", "raw": "{\n  \"closures\": [\n    { \"dateFrom\": \"2026-08-15\", \"dateTo\": \"2026-08-20\", \"reason\": \"Ferie estive\" }\n  ]\n}", "form": [] },
       "tests": [],
       "docs": "Sostituzione IN BLOCCO: body wrappato in { closures: [...] }."
+    },
+    {
+      "_id": "req-admin-list-apikeys", "colId": "col-booking-system", "containerId": "fld-adm", "name": "GET admin/api-keys",
+      "url": "{{baseUrl}}/api/v1/admin/api-keys", "method": "GET", "sortNum": 140000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-admin-create-apikey", "colId": "col-booking-system", "containerId": "fld-adm", "name": "POST admin/api-keys (rotazione)",
+      "url": "{{baseUrl}}/api/v1/admin/api-keys", "method": "POST", "sortNum": 150000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" }, { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"description\": \"Chiave di rotazione\"\n}", "form": [] },
+      "tests": [],
+      "docs": "Restituisce la nuova chiave in chiaro UNA sola volta (campo apiKey). Aggiorna il frontend, poi revoca la vecchia."
+    },
+    {
+      "_id": "req-admin-revoke-apikey", "colId": "col-booking-system", "containerId": "fld-adm", "name": "DELETE admin/api-keys/{id} (revoca)",
+      "url": "{{baseUrl}}/api/v1/admin/api-keys/{{apiKeyId}}", "method": "DELETE", "sortNum": 160000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": [],
+      "docs": "Imposta {{apiKeyId}} con l'id di una chiave (da GET admin/api-keys)."
     }
   ]
 }
