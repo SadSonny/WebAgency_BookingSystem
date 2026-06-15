@@ -26,6 +26,8 @@ internal sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.HasIndex(b => b.CancellationToken);
         builder.HasIndex(b => new { b.TenantId, b.ServiceId, b.BookingDate, b.Status });
         builder.HasIndex(b => new { b.StaffId, b.BookingDate });
+        // P3: supporta lo scan cross-tenant del job promemoria (Confermate non ancora promemoria-te in finestra).
+        builder.HasIndex(b => new { b.Status, b.ReminderSentAt, b.BookingDate });
 
         builder.HasOne(b => b.Tenant)
             .WithMany(t => t.Bookings)

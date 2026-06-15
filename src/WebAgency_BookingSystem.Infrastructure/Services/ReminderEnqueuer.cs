@@ -29,18 +29,32 @@ internal sealed class ReminderEnqueuer : IReminderEnqueuer
     public async Task<int> EnqueueDueRemindersAsync(CancellationToken ct = default)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        // WHY: limitiamo i candidati alle prenotazioni Confermate non ancora promemoria-te da oggi in avanti
-        // (la finestra di anticipo è applicata in memoria perché dipende dal timezone del tenant). Il filtro
-        // sulla data tiene il set piccolo. Cross-tenant: IgnoreQueryFilters + include Tenant/Service.
-        DateOnly fromDate = DateOnly.FromDateTime(now.UtcDateTime).AddDays(-1);
 
+        // WHY (P3): restringiamo lo scan. Calcoliamo l'anticipo massimo tra i tenant con reminder attivo: nessun
+        // appuntamento oltre quella finestra può essere "dovuto" ora. Se nessun tenant ha i reminder attivi,
+        // usciamo subito. Il margine (+2 giorni) copre fusi orari e l'arrotondamento ore→giorni.
+        int? maxReminderHours = await _db.Tenants
+            .Where(t => t.Active && t.NotificationMethod == "email" && t.ReminderHoursBefore > 0)
+            .Select(t => (int?)t.ReminderHoursBefore)
+            .MaxAsync(ct);
+        if (maxReminderHours is null)
+        {
+            return 0;
+        }
+
+        DateOnly fromDate = DateOnly.FromDateTime(now.UtcDateTime).AddDays(-1);
+        DateOnly toDate = DateOnly.FromDateTime(now.UtcDateTime).AddDays((maxReminderHours.Value / 24) + 2);
+
+        // La finestra di anticipo precisa (timezone-aware) è poi applicata in memoria. Cross-tenant:
+        // IgnoreQueryFilters + include Tenant/Service. L'indice (status, reminder_sent_at, booking_date) supporta il filtro.
         List<Booking> candidates = await _db.Bookings
             .IgnoreQueryFilters()
             .Include(b => b.Tenant)
             .Include(b => b.Service)
             .Where(b => b.Status == BookingStatus.Confirmed
                 && b.ReminderSentAt == null
-                && b.BookingDate >= fromDate)
+                && b.BookingDate >= fromDate
+                && b.BookingDate <= toDate)
             .ToListAsync(ct);
 
         int enqueued = 0;
