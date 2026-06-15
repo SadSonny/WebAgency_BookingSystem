@@ -1,0 +1,204 @@
+{
+  "clientName": "Thunder Client",
+  "collectionName": "WebAgency BookingSystem API",
+  "collectionId": "col-booking-system",
+  "dateExported": "2026-06-15T10:00:00.000Z",
+  "version": "1.2",
+  "folders": [
+    { "_id": "fld-sys", "name": "1. Sistema (no auth)", "containerId": "", "created": "2026-06-15T10:00:00.000Z", "sortNum": 10000 },
+    { "_id": "fld-pub", "name": "2. Pubbliche (X-Api-Key)", "containerId": "", "created": "2026-06-15T10:00:00.000Z", "sortNum": 20000 },
+    { "_id": "fld-adm", "name": "3. Admin (JWT Bearer)", "containerId": "", "created": "2026-06-15T10:00:00.000Z", "sortNum": 30000 }
+  ],
+  "requests": [
+    {
+      "_id": "req-health-live", "colId": "col-booking-system", "containerId": "fld-sys", "name": "Liveness",
+      "url": "{{baseUrl}}/api/v1/health/live", "method": "GET", "sortNum": 10000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [], "params": [], "body": { "type": "none", "raw": "", "form": [] },
+      "tests": [ { "type": "res-code", "custom": "", "action": "equal", "value": "200" } ]
+    },
+    {
+      "_id": "req-health", "colId": "col-booking-system", "containerId": "fld-sys", "name": "Readiness (DB)",
+      "url": "{{baseUrl}}/api/v1/health", "method": "GET", "sortNum": 20000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [], "params": [], "body": { "type": "none", "raw": "", "form": [] },
+      "tests": []
+    },
+    {
+      "_id": "req-tenant-config", "colId": "col-booking-system", "containerId": "fld-pub", "name": "GET tenant/config",
+      "url": "{{baseUrl}}/api/v1/tenant/config", "method": "GET", "sortNum": 10000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-services", "colId": "col-booking-system", "containerId": "fld-pub", "name": "GET services",
+      "url": "{{baseUrl}}/api/v1/services", "method": "GET", "sortNum": 20000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] },
+      "tests": [ { "type": "set-env-var", "custom": "json[0].id", "action": "setto", "value": "serviceId" } ],
+      "docs": "Imposta automaticamente {{serviceId}} dal primo servizio della lista (comodo per i test successivi)."
+    },
+    {
+      "_id": "req-staff", "colId": "col-booking-system", "containerId": "fld-pub", "name": "GET staff",
+      "url": "{{baseUrl}}/api/v1/staff", "method": "GET", "sortNum": 30000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] },
+      "tests": [ { "type": "set-env-var", "custom": "json[0].id", "action": "setto", "value": "staffId" } ],
+      "docs": "Per filtrare per servizio aggiungi il query param serviceId={{serviceId}}."
+    },
+    {
+      "_id": "req-availability", "colId": "col-booking-system", "containerId": "fld-pub", "name": "GET availability",
+      "url": "{{baseUrl}}/api/v1/availability", "method": "GET", "sortNum": 40000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" } ],
+      "params": [
+        { "name": "serviceId", "value": "{{serviceId}}", "isPath": false },
+        { "name": "dateFrom", "value": "{{dateFrom}}", "isPath": false },
+        { "name": "dateTo", "value": "{{dateTo}}", "isPath": false }
+      ],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": [],
+      "docs": "staffId opzionale: aggiungilo come query param per la disponibilità del singolo operatore."
+    },
+    {
+      "_id": "req-create-booking", "colId": "col-booking-system", "containerId": "fld-pub", "name": "POST bookings (crea)",
+      "url": "{{baseUrl}}/api/v1/bookings", "method": "POST", "sortNum": 50000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" }, { "name": "Content-Type", "value": "application/json" } ],
+      "params": [],
+      "body": { "type": "json", "raw": "{\n  \"serviceId\": \"{{serviceId}}\",\n  \"staffId\": null,\n  \"date\": \"{{date}}\",\n  \"time\": \"{{time}}\",\n  \"customer\": {\n    \"name\": \"Luca Bianchi\",\n    \"phone\": \"+39 333 1234567\",\n    \"email\": \"luca@example.it\",\n    \"notes\": \"Prenotazione di test da Thunder Client\"\n  },\n  \"gdprConsent\": true\n}", "form": [] },
+      "tests": [
+        { "type": "res-code", "custom": "", "action": "equal", "value": "201" },
+        { "type": "set-env-var", "custom": "json.bookingId", "action": "setto", "value": "bookingId" },
+        { "type": "set-env-var", "custom": "json.cancellationToken", "action": "setto", "value": "cancellationToken" }
+      ],
+      "docs": "Cattura automaticamente bookingId e cancellationToken per i due request successivi."
+    },
+    {
+      "_id": "req-get-booking", "colId": "col-booking-system", "containerId": "fld-pub", "name": "GET bookings/{id} (dettaglio)",
+      "url": "{{baseUrl}}/api/v1/bookings/{{bookingId}}", "method": "GET", "sortNum": 60000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" } ],
+      "params": [ { "name": "token", "value": "{{cancellationToken}}", "isPath": false } ],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-cancel-booking", "colId": "col-booking-system", "containerId": "fld-pub", "name": "DELETE bookings/{id} (disdici)",
+      "url": "{{baseUrl}}/api/v1/bookings/{{bookingId}}", "method": "DELETE", "sortNum": 70000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" } ],
+      "params": [ { "name": "token", "value": "{{cancellationToken}}", "isPath": false } ],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-admin-login", "colId": "col-booking-system", "containerId": "fld-adm", "name": "POST admin/auth/token (LOGIN → setta adminJwt)",
+      "url": "{{baseUrl}}/api/v1/admin/auth/token", "method": "POST", "sortNum": 10000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"tenantSlug\": \"{{tenantSlug}}\",\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}", "form": [] },
+      "tests": [
+        { "type": "res-code", "custom": "", "action": "equal", "value": "200" },
+        { "type": "set-env-var", "custom": "json.token", "action": "setto", "value": "adminJwt" }
+      ],
+      "docs": "ESEGUI QUESTO PER PRIMO tra gli admin: salva il JWT in {{adminJwt}}, usato da tutte le altre rotte admin."
+    },
+    {
+      "_id": "req-admin-list-bookings", "colId": "col-booking-system", "containerId": "fld-adm", "name": "GET admin/bookings",
+      "url": "{{baseUrl}}/api/v1/admin/bookings", "method": "GET", "sortNum": 20000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": [],
+      "docs": "Filtri opzionali (query): dateFrom, dateTo, staffId, serviceId, status (confirmed|cancelled|no_show|completed)."
+    },
+    {
+      "_id": "req-admin-patch-booking", "colId": "col-booking-system", "containerId": "fld-adm", "name": "PATCH admin/bookings/{id} (stato)",
+      "url": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}", "method": "PATCH", "sortNum": 30000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" }, { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"status\": \"completed\"\n}", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-admin-list-services", "colId": "col-booking-system", "containerId": "fld-adm", "name": "GET admin/services",
+      "url": "{{baseUrl}}/api/v1/admin/services", "method": "GET", "sortNum": 40000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-admin-create-service", "colId": "col-booking-system", "containerId": "fld-adm", "name": "POST admin/services (crea → setta serviceId)",
+      "url": "{{baseUrl}}/api/v1/admin/services", "method": "POST", "sortNum": 50000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" }, { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"name\": \"Taglio Test (TC)\",\n  \"category\": \"Capelli\",\n  \"description\": \"Servizio creato da Thunder Client\",\n  \"durationMinutes\": 30,\n  \"basePrice\": 20.0,\n  \"parallelSlots\": 1,\n  \"bufferEnabled\": false,\n  \"bufferMinutes\": 0,\n  \"bufferPosition\": \"After\",\n  \"active\": true,\n  \"displayOrder\": 10\n}", "form": [] },
+      "tests": [
+        { "type": "res-code", "custom": "", "action": "equal", "value": "201" },
+        { "type": "set-env-var", "custom": "json.id", "action": "setto", "value": "serviceId" }
+      ]
+    },
+    {
+      "_id": "req-admin-update-service", "colId": "col-booking-system", "containerId": "fld-adm", "name": "PUT admin/services/{id}",
+      "url": "{{baseUrl}}/api/v1/admin/services/{{serviceId}}", "method": "PUT", "sortNum": 60000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" }, { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"name\": \"Taglio Test (TC) - modificato\",\n  \"category\": \"Capelli\",\n  \"description\": \"Aggiornato da Thunder Client\",\n  \"durationMinutes\": 45,\n  \"basePrice\": 25.0,\n  \"parallelSlots\": 1,\n  \"bufferEnabled\": false,\n  \"bufferMinutes\": 0,\n  \"bufferPosition\": \"After\",\n  \"active\": true,\n  \"displayOrder\": 10\n}", "form": [] },
+      "tests": []
+    },
+    {
+      "_id": "req-admin-delete-service", "colId": "col-booking-system", "containerId": "fld-adm", "name": "DELETE admin/services/{id} (soft)",
+      "url": "{{baseUrl}}/api/v1/admin/services/{{serviceId}}", "method": "DELETE", "sortNum": 70000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-admin-list-staff", "colId": "col-booking-system", "containerId": "fld-adm", "name": "GET admin/staff",
+      "url": "{{baseUrl}}/api/v1/admin/staff", "method": "GET", "sortNum": 80000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-admin-create-staff", "colId": "col-booking-system", "containerId": "fld-adm", "name": "POST admin/staff (crea → setta staffId)",
+      "url": "{{baseUrl}}/api/v1/admin/staff", "method": "POST", "sortNum": 90000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" }, { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"name\": \"Giulia Test (TC)\",\n  \"role\": \"Estetista\",\n  \"specialization\": \"Manicure\",\n  \"photoUrl\": null,\n  \"active\": true,\n  \"displayOrder\": 2,\n  \"services\": [ { \"serviceId\": \"{{serviceId}}\", \"priceOverride\": null } ],\n  \"businessHours\": [ { \"dayOfWeek\": 1, \"isAvailable\": true, \"startTime\": \"09:00\", \"endTime\": \"18:00\", \"breakStart\": null, \"breakEnd\": null } ]\n}", "form": [] },
+      "tests": [ { "type": "set-env-var", "custom": "json.id", "action": "setto", "value": "staffId" } ]
+    },
+    {
+      "_id": "req-admin-update-staff", "colId": "col-booking-system", "containerId": "fld-adm", "name": "PUT admin/staff/{id}",
+      "url": "{{baseUrl}}/api/v1/admin/staff/{{staffId}}", "method": "PUT", "sortNum": 100000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" }, { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"name\": \"Giulia Test (TC) - modificata\",\n  \"role\": \"Estetista\",\n  \"specialization\": \"Manicure e Pedicure\",\n  \"photoUrl\": null,\n  \"active\": true,\n  \"displayOrder\": 2,\n  \"services\": [ { \"serviceId\": \"{{serviceId}}\", \"priceOverride\": 30.0 } ],\n  \"businessHours\": [ { \"dayOfWeek\": 1, \"isAvailable\": true, \"startTime\": \"09:00\", \"endTime\": \"18:00\", \"breakStart\": null, \"breakEnd\": null } ]\n}", "form": [] },
+      "tests": []
+    },
+    {
+      "_id": "req-admin-delete-staff", "colId": "col-booking-system", "containerId": "fld-adm", "name": "DELETE admin/staff/{id} (soft)",
+      "url": "{{baseUrl}}/api/v1/admin/staff/{{staffId}}", "method": "DELETE", "sortNum": 110000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-admin-business-hours", "colId": "col-booking-system", "containerId": "fld-adm", "name": "PUT admin/business-hours (in blocco)",
+      "url": "{{baseUrl}}/api/v1/admin/business-hours", "method": "PUT", "sortNum": 120000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" }, { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"days\": [\n    { \"dayOfWeek\": 0, \"isOpen\": false, \"openTime\": null, \"closeTime\": null, \"breakStart\": null, \"breakEnd\": null },\n    { \"dayOfWeek\": 1, \"isOpen\": true, \"openTime\": \"09:00\", \"closeTime\": \"19:00\", \"breakStart\": \"13:00\", \"breakEnd\": \"14:00\" },\n    { \"dayOfWeek\": 2, \"isOpen\": true, \"openTime\": \"09:00\", \"closeTime\": \"19:00\", \"breakStart\": \"13:00\", \"breakEnd\": \"14:00\" },\n    { \"dayOfWeek\": 3, \"isOpen\": true, \"openTime\": \"09:00\", \"closeTime\": \"19:00\", \"breakStart\": \"13:00\", \"breakEnd\": \"14:00\" },\n    { \"dayOfWeek\": 4, \"isOpen\": true, \"openTime\": \"09:00\", \"closeTime\": \"19:00\", \"breakStart\": \"13:00\", \"breakEnd\": \"14:00\" },\n    { \"dayOfWeek\": 5, \"isOpen\": true, \"openTime\": \"09:00\", \"closeTime\": \"19:00\", \"breakStart\": \"13:00\", \"breakEnd\": \"14:00\" },\n    { \"dayOfWeek\": 6, \"isOpen\": true, \"openTime\": \"09:00\", \"closeTime\": \"13:00\", \"breakStart\": null, \"breakEnd\": null }\n  ]\n}", "form": [] },
+      "tests": [],
+      "docs": "Sostituzione IN BLOCCO: il body deve essere wrappato in { days: [...] }, non un array nudo."
+    },
+    {
+      "_id": "req-admin-closures", "colId": "col-booking-system", "containerId": "fld-adm", "name": "PUT admin/closures (in blocco)",
+      "url": "{{baseUrl}}/api/v1/admin/closures", "method": "PUT", "sortNum": 130000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" }, { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"closures\": [\n    { \"dateFrom\": \"2026-08-15\", \"dateTo\": \"2026-08-20\", \"reason\": \"Ferie estive\" }\n  ]\n}", "form": [] },
+      "tests": [],
+      "docs": "Sostituzione IN BLOCCO: body wrappato in { closures: [...] }."
+    }
+  ]
+}

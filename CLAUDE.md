@@ -279,4 +279,5 @@ Tutta la documentazione vive in `Claude_Instructions/` (unico `.md` nella root √
 - Spec originali: `Claude_Instructions/` (00-indice, 01-architettura, 02-schema, 03-endpoint, 04-disponibilit√†, 05-provisioning)
 - Piano e avanzamento: `Claude_Instructions/DEVELOPMENT_PLAN.md`
 - Guida integrazione (API, onboarding sito, CLI): `Claude_Instructions/GUIDA_INTEGRAZIONE_API.md`
+- Test API con Thunder Client: `Claude_Instructions/TEST_API_THUNDER_CLIENT.md` (file importabili in `thunder-tests/`)
 - Note/sessioni: `Claude_Instructions/DUBBI_SESSIONE.md`, `Claude_Instructions/DOCKER_SESSION_TODO.md`, `Claude_Instructions/CODE_REVIEW_FINDINGS.md`

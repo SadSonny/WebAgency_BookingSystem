@@ -1,0 +1,23 @@
+{
+  "clientName": "Thunder Client",
+  "environmentName": "BookingSystem - Local",
+  "environmentId": "env-booking-local",
+  "dateExported": "2026-06-15T10:00:00.000Z",
+  "version": "1.2",
+  "local": [
+    { "name": "baseUrl", "value": "http://localhost:5022" },
+    { "name": "apiKey", "value": "bk_live_INCOLLA_LA_TUA_API_KEY" },
+    { "name": "tenantSlug", "value": "barbershop-mario" },
+    { "name": "adminEmail", "value": "owner@barbershop.it" },
+    { "name": "adminPassword", "value": "INCOLLA_LA_PASSWORD_ADMIN" },
+    { "name": "adminJwt", "value": "" },
+    { "name": "serviceId", "value": "" },
+    { "name": "staffId", "value": "" },
+    { "name": "bookingId", "value": "" },
+    { "name": "cancellationToken", "value": "" },
+    { "name": "date", "value": "2026-06-22" },
+    { "name": "time", "value": "10:00" },
+    { "name": "dateFrom", "value": "2026-06-22" },
+    { "name": "dateTo", "value": "2026-06-28" }
+  ]
+}
