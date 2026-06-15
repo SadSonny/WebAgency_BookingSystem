@@ -17,6 +17,7 @@ internal static class AdminBookingEndpoints
 
         group.MapGet("", async (
             DateOnly? dateFrom, DateOnly? dateTo, Guid? staffId, Guid? serviceId, string? status,
+            int? page, int? pageSize,
             IAdminBookingService bookings, CancellationToken ct) =>
         {
             BookingStatus? statusFilter = null;
@@ -31,13 +32,13 @@ internal static class AdminBookingEndpoints
             }
 
             var filter = new AdminBookingFilter(dateFrom, dateTo, staffId, serviceId, statusFilter);
-            var result = await bookings.ListAsync(filter, ct);
-            return result.Match(list => Results.Ok(list));
+            var result = await bookings.ListAsync(filter, page ?? 1, pageSize ?? 50, ct);
+            return result.Match(paged => Results.Ok(paged));
         })
         .WithName("AdminListBookings")
-        .WithSummary("Lista prenotazioni (admin)")
-        .WithDescription("Elenca le prenotazioni del tenant filtrabili per dateFrom/dateTo, staffId, serviceId, status.")
-        .Produces<IReadOnlyList<AdminBookingResponse>>(StatusCodes.Status200OK)
+        .WithSummary("Lista prenotazioni (admin, paginata)")
+        .WithDescription("Elenca le prenotazioni del tenant filtrabili per dateFrom/dateTo, staffId, serviceId, status. Paginazione: page (1-based, default 1), pageSize (default 50, max 200).")
+        .Produces<PagedResponse<AdminBookingResponse>>(StatusCodes.Status200OK)
         .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
         .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized);
 

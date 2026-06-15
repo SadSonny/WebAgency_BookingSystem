@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Core.Common;
+using WebAgency_BookingSystem.Core.Dtos;
 using WebAgency_BookingSystem.Core.Dtos.Admin;
 using WebAgency_BookingSystem.Core.Dtos.Public;
 using WebAgency_BookingSystem.Core.Entities;
@@ -32,8 +33,16 @@ internal sealed class AdminBookingService : IAdminBookingService
         _logger = logger;
     }
 
-    public async Task<Result<IReadOnlyList<AdminBookingResponse>>> ListAsync(AdminBookingFilter filter, CancellationToken ct = default)
+    private const int MaxPageSize = 200;
+    private const int DefaultPageSize = 50;
+
+    public async Task<Result<PagedResponse<AdminBookingResponse>>> ListAsync(
+        AdminBookingFilter filter, int page, int pageSize, CancellationToken ct = default)
     {
+        // P4: paginazione difensiva — page ≥ 1, pageSize tra 1 e MaxPageSize.
+        int safePage = page < 1 ? 1 : page;
+        int safeSize = pageSize <= 0 ? DefaultPageSize : Math.Min(pageSize, MaxPageSize);
+
         Guid tenantId = _tenantContext.TenantId!.Value;
 
         IQueryable<Booking> query = _db.Bookings
@@ -68,12 +77,16 @@ internal sealed class AdminBookingService : IAdminBookingService
             query = query.Where(b => b.Status == status);
         }
 
+        int total = await query.CountAsync(ct);
+
         List<Booking> bookings = await query
             .OrderBy(b => b.BookingDate).ThenBy(b => b.BookingTime)
+            .Skip((safePage - 1) * safeSize)
+            .Take(safeSize)
             .ToListAsync(ct);
 
-        IReadOnlyList<AdminBookingResponse> response = bookings.Select(Map).ToList();
-        return Result.Success(response);
+        IReadOnlyList<AdminBookingResponse> items = bookings.Select(Map).ToList();
+        return Result.Success(new PagedResponse<AdminBookingResponse>(items, safePage, safeSize, total));
     }
 
     public async Task<Result<AdminBookingResponse>> UpdateStatusAsync(
