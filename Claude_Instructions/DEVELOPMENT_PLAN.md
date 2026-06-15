@@ -171,6 +171,41 @@
 
 ---
 
+## V2.1 — Salone reale (Tier 1 + Tier 2)
+
+> Funzionalità necessarie per un'attività reale con N operatori (es. parrucchieri), da analisi 2026-06-15.
+> Decisioni utente: **un operatore per appuntamento** (servizi consecutivi, durata sommata); **"qualsiasi
+> operatore" auto-assegnato** alla conferma con disponibilità aggregata sulle agende reali; **assenze staff a
+> giorni interi + fasce orarie**; **reminder 24h prima, configurabile per tenant**. Reschedule: cliente (via
+> token, entro preavviso) + admin, coerente con la disdetta. Tier 3 (anagrafica cliente, pagamenti, report)
+> escluso per ora.
+
+### Tier 1 — abilitanti per il salone reale
+- [ ] **T1.1 Assenze per operatore** (`StaffTimeOff`): entità + migration + repo + Admin CRUD
+  (`/admin/staff/{id}/time-off`). Integrazione availability: giorno intero → niente slot per quell'operatore;
+  fascia parziale → intervallo bloccante. Unit + integration test.
+- [ ] **T1.2 "Qualsiasi operatore"**: senza `staffId` la disponibilità aggrega le agende dei soli operatori
+  **qualificati** (che eseguono il servizio), considerando orari/assenze/prenotazioni individuali; alla
+  creazione il sistema **auto-assegna** un operatore libero. Fallback su `parallelSlots` solo per servizi
+  senza staff assegnato. Rework `AvailabilityService`/`AvailabilityCalculator` + booking. Test.
+- [ ] **T1.3 Appuntamento multi-servizio** (un operatore): `BookingItem` (lista ordinata di servizi, durata/prezzo
+  snapshot), durata totale = somma, slot **consecutivi**, operatore che esegue **tutti** i servizi richiesti.
+  Rework request `POST /bookings` (lista servizi), creazione e disponibilità (blocco continuo). Email aggiornate. Test.
+
+### Tier 2 — qualità servizio / anti no-show
+- [ ] **T2.1 Cancellazione da admin notifica il cliente**: `PATCH /admin/bookings/{id}` → `cancelled` accoda
+  l'email di disdetta (oggi non avvisa). Quick win, nessuno schema.
+- [ ] **T2.2 Reschedule / modifica appuntamento**: endpoint cliente (`PUT /bookings/{id}/reschedule?token=`) +
+  admin; ri-verifica disponibilità sotto lock, rispetta anticipo/preavviso, email di avvenuta modifica. Test.
+- [ ] **T2.3 Reminder pre-appuntamento**: campi tenant (`ReminderHoursBefore` default 24, abilitato con
+  notifiche email), `Booking.ReminderSentAt`, `EmailKind.Reminder` + template, scheduler (BackgroundService)
+  che accoda i reminder dovuti. Test.
+
+> **Escluso (Tier 3, eventuale V2.2+):** anagrafica cliente + storico, acconti/pagamenti, reportistica titolare,
+> SMS/WhatsApp, waitlist, ricorrenti, multi-sede.
+
+---
+
 ## V3 — Dashboard Interna Dev (RIMANDATA)
 
 > **Stato: pianificazione differita.** Non si parte finché V2 (email) e deploy non sono stabili.
