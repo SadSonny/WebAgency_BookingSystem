@@ -372,6 +372,160 @@ internal sealed class BookingService : IBookingService
         return Result.Success(new CancelBookingResponse(booking.Id, booking.Status.ToApiString(), "Prenotazione disdetta con successo."));
     }
 
+    public async Task<Result<BookingDetailResponse>> RescheduleAsync(
+        Guid bookingId, Guid token, string newDate, string newTime, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParseExact(newDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly date))
+        {
+            return Error.Validation("validation_error", "Formato data non valido. Usare yyyy-MM-dd.");
+        }
+
+        if (!TimeOnly.TryParseExact(newTime, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out TimeOnly time))
+        {
+            return Error.Validation("validation_error", "Formato orario non valido. Usare HH:mm.");
+        }
+
+        Booking? booking = await _bookings.GetByIdAndTokenAsync(bookingId, token, ct);
+        if (booking is null)
+        {
+            return NeutralNotFound<BookingDetailResponse>();
+        }
+
+        if (booking.Status != BookingStatus.Confirmed)
+        {
+            return Error.Validation("booking_not_reschedulable", "La prenotazione non è in uno stato modificabile.");
+        }
+
+        Tenant tenant = _tenantContext.Tenant!;
+
+        // Stesso vincolo della disdetta: non si può spostare oltre il termine di preavviso dell'appuntamento corrente.
+        DateTimeOffset currentDeadline = TenantTime
+            .ToInstant(booking.BookingDate, booking.BookingTime, tenant.Timezone)
+            .AddHours(-tenant.MinCancellationHours);
+        if (DateTimeOffset.UtcNow >= currentDeadline)
+        {
+            return Error.Forbidden("cancellation_deadline_exceeded",
+                $"Non è possibile modificare con meno di {tenant.MinCancellationHours} ore di preavviso.");
+        }
+
+        // Mantiene servizi e operatore: durata totale e buffer (servizio principale) restano quelli del booking.
+        Service primary = booking.Service ?? await _services.GetActiveByIdAsync(booking.ServiceId, ct)
+            ?? throw new InvalidOperationException("Servizio principale della prenotazione non trovato.");
+        var config = new ServiceSlotConfig(
+            booking.DurationMinutes, primary.ParallelSlots,
+            primary.BufferEnabled ? primary.BufferMinutes : 0, primary.BufferPosition);
+        Guid? staffId = booking.StaffId;
+        DateTime tenantNow = TenantTime.Now(tenant.Timezone);
+        long lockKey = ComputeLockKey(tenant.Id, booking.ServiceId, date, time);
+
+        var strategy = _db.Database.CreateExecutionStrategy();
+        Result<BookingDetailResponse> outcome = await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+            try
+            {
+                await AcquireSlotLockAsync(lockKey, ct);
+            }
+            catch (PostgresException ex) when (ex.SqlState == LockTimeoutSqlState)
+            {
+                return Result.Failure<BookingDetailResponse>(Error.Conflict("slot_unavailable",
+                    "Lo slot selezionato non è più disponibile. Ricarica la disponibilità e riprova."));
+            }
+
+            // Regole staff-indipendenti sul NUOVO slot (PH-5: istanti assoluti).
+            if (TenantTime.ToInstant(date, time, tenant.Timezone) < DateTimeOffset.UtcNow.AddHours(tenant.MinAdvanceHours))
+            {
+                return Result.Failure<BookingDetailResponse>(
+                    Error.Validation("validation_error", "Lo slot selezionato non rispetta l'anticipo minimo di prenotazione."));
+            }
+
+            if (date > DateOnly.FromDateTime(tenantNow).AddDays(tenant.VisibleDaysAhead))
+            {
+                return Result.Failure<BookingDetailResponse>(
+                    Error.Validation("validation_error", "La data selezionata è oltre il periodo prenotabile."));
+            }
+
+            IReadOnlyList<TenantBusinessHours> businessHours = await _tenants.GetBusinessHoursAsync(tenant.Id, ct);
+            IReadOnlyList<TenantSpecialClosure> closures = await _tenants.GetActiveSpecialClosuresAsync(tenant.Id, date, ct);
+            var hoursByDay = businessHours.ToDictionary(h => h.DayOfWeek);
+
+            IReadOnlyList<TimeInterval> blocks = [];
+            DayWindow? window;
+            List<BookingSlot> daySlots;
+
+            if (staffId is Guid sid)
+            {
+                var staffHoursByDay = (await _staff.GetBusinessHoursAsync(sid, ct)).ToDictionary(h => h.DayOfWeek);
+                window = HoursResolver.ResolveWindow(date, hoursByDay, staffHoursByDay, closures, sid);
+                IReadOnlyList<StaffTimeOff> timeOff = await _staff.GetTimeOffInRangeAsync(sid, date, date, ct);
+                if (window is null || timeOff.Any(t => t.IsFullDay))
+                {
+                    return Result.Failure<BookingDetailResponse>(
+                        Error.Validation("validation_error", "Il giorno o l'orario selezionato non è prenotabile."));
+                }
+
+                blocks = timeOff.Where(t => !t.IsFullDay)
+                    .Select(t => new TimeInterval(t.StartTime!.Value, t.EndTime!.Value)).ToList();
+                // WHY: escludiamo la prenotazione che stiamo spostando, altrimenti confliggerebbe con sé stessa.
+                daySlots = (await _bookings.GetConfirmedByStaffInRangeAsync(sid, date, date, ct))
+                    .Where(b => b.Id != bookingId)
+                    .Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
+            }
+            else
+            {
+                window = HoursResolver.ResolveWindow(
+                    date, hoursByDay, new Dictionary<DayOfWeekIndex, StaffBusinessHours>(), closures, null);
+                if (window is null)
+                {
+                    return Result.Failure<BookingDetailResponse>(
+                        Error.Validation("validation_error", "Il giorno o l'orario selezionato non è prenotabile."));
+                }
+
+                daySlots = (await _bookings.GetConfirmedByServiceInRangeAsync(booking.ServiceId, date, date, ct))
+                    .Where(b => b.Id != bookingId)
+                    .Select(b => new BookingSlot(b.BookingTime, b.DurationMinutes, b.ServiceId, b.StaffId)).ToList();
+            }
+
+            if (!AvailabilityCalculator.IsSlotAvailable(time, window, config, booking.ServiceId, staffId, daySlots, blocks))
+            {
+                return Result.Failure<BookingDetailResponse>(SlotUnavailableError(booking.ServiceId, date, time));
+            }
+
+            booking.BookingDate = date;
+            booking.BookingTime = time;
+            // UpdatedAt valorizzato dal TimestampInterceptor.
+
+            _db.AuditLogs.Add(new AuditLog
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenant.Id,
+                BookingId = booking.Id,
+                Action = "booking_rescheduled",
+                Actor = "customer",
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+
+            // Notifica con i dati aggiornati: riusa la conferma (riflette nuova data/ora). Tenant detached → null dopo.
+            booking.Tenant = tenant;
+            _outbox.EnqueueBookingConfirmation(booking);
+            booking.Tenant = null;
+
+            await _db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return Result.Success<BookingDetailResponse>(default!); // placeholder: il dettaglio fresco è ricaricato dopo
+        });
+
+        if (outcome.IsFailure)
+        {
+            return outcome;
+        }
+
+        _logger.LogInformation("Prenotazione {BookingId} spostata al {Date} {Time}", bookingId, date, time);
+
+        // Dettaglio aggiornato (ricaricato fuori dalla transazione).
+        return await GetByTokenAsync(bookingId, token, ct);
+    }
+
     // Ri-verifica regole di business + disponibilità DENTRO la transazione (con dati freschi sotto lock) e
     // DETERMINA l'operatore effettivo (T1.2). Restituisce lo staffId da assegnare: l'id richiesto se valido,
     // un operatore qualificato libero se "qualsiasi", o null se il servizio non ha operatori (parallelSlots).

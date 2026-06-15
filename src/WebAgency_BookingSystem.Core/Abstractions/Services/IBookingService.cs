@@ -37,4 +37,12 @@ public interface IBookingService
     /// </summary>
     Task<Result<CancelBookingResponse>> CancelAsync(
         Guid bookingId, Guid token, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sposta una prenotazione confermata a una nuova data/ora (T2.2), mantenendo servizi e operatore. Valida
+    /// id + token, il preavviso minimo (come la disdetta) e la disponibilità del nuovo slot sotto advisory lock
+    /// (escludendo se stessa). Fallisce con <see cref="ErrorType.Conflict"/> se il nuovo slot non è disponibile.
+    /// </summary>
+    Task<Result<BookingDetailResponse>> RescheduleAsync(
+        Guid bookingId, Guid token, string newDate, string newTime, CancellationToken ct = default);
 }

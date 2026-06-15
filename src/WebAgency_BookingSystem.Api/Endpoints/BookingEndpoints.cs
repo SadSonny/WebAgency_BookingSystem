@@ -70,6 +70,34 @@ internal static class BookingEndpoints
         .Produces<ErrorResponse>(StatusCodes.Status403Forbidden)
         .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
 
+        app.MapPut("/api/v1/bookings/{id:guid}/reschedule", async (
+            Guid id, Guid? token, RescheduleBookingRequest request, IBookingService bookings, CancellationToken ct) =>
+        {
+            if (token is not Guid accessToken)
+            {
+                return ResultMapping.BadRequest("Il parametro token è obbligatorio.");
+            }
+
+            var result = await bookings.RescheduleAsync(id, accessToken, request.Date, request.Time, ct);
+            return result.Match(detail => Results.Ok(detail));
+        })
+        .WithName("RescheduleBooking")
+        .WithSummary("Sposta una prenotazione")
+        .WithDescription("""
+            Sposta una prenotazione confermata a una nuova data/ora (servizi e operatore invariati), via id + token.
+            Ri-verifica la disponibilità del nuovo slot sotto advisory lock. 403 oltre il preavviso minimo,
+            409 se il nuovo slot non è disponibile, 404 neutro se id/token non combaciano.
+            """)
+        .WithTags("Prenotazioni")
+        .RequireRateLimiting(RateLimitingPolicies.PublicApi)
+        .Produces<BookingDetailResponse>(StatusCodes.Status200OK)
+        .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
+        .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
+        .Produces<ErrorResponse>(StatusCodes.Status403Forbidden)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound)
+        .Produces<ErrorResponse>(StatusCodes.Status409Conflict)
+        .Produces<ErrorResponse>(StatusCodes.Status422UnprocessableEntity);
+
         app.MapDelete("/api/v1/bookings/{id:guid}", async (
             Guid id, Guid? token, IBookingService bookings, CancellationToken ct) =>
         {
