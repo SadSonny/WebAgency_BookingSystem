@@ -215,6 +215,22 @@ dotnet run --project tools/WebAgency_BookingSystem.TenantProvisioning \
 - API: `http://localhost:5000`
 - pgAdmin: `http://localhost:5050` (email: `admin@admin.com`, password: `admin`)
 
+### Segreti di sviluppo — User Secrets (PH-4)
+
+I valori in `appsettings.Development.json` sono **default locali non sensibili** (DB di docker-compose, JWT
+secret di sviluppo marcato `change-me`) e servono solo a far girare il progetto out-of-the-box. Per qualsiasi
+**segreto reale in locale** usa gli **User Secrets** (.NET), che non finiscono nel repo e **sovrascrivono**
+`appsettings.Development.json` in ambiente Development (il progetto `Api` ha già `UserSecretsId` configurato):
+
+```bash
+cd src/WebAgency_BookingSystem.Api
+dotnet user-secrets set "Jwt:Secret" "<segreto-random-min-32-char>"
+dotnet user-secrets set "ConnectionStrings:Database" "<connection-string>"
+dotnet user-secrets set "Email:Brevo:ApiKey" "<xkeysib-...>"
+```
+
+In **produzione** non si usano né appsettings né user-secrets: solo **variabili d'ambiente** (vedi tabella sotto).
+
 ## Variabili d'Ambiente
 
 | Variabile | Descrizione | Esempio locale |

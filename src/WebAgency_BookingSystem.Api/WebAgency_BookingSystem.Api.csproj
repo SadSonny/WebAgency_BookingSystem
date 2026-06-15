@@ -4,6 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- PH-4: abilita `dotnet user-secrets` per i segreti di sviluppo (JWT, DB, Brevo). In ambiente
+         Development il host carica automaticamente gli User Secrets, che SOVRASCRIVONO appsettings.Development.json:
+         i veri segreti restano fuori dal repo (machine-local). In produzione si usano le variabili d'ambiente. -->
+    <UserSecretsId>webagency-bookingsystem-api</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
