@@ -212,7 +212,35 @@ email multi-servizio, reschedule admin. Poi 8.7 (branding). **NON** è prevista 
 
 ---
 
-## V3 — Dashboard Interna Dev (RIMANDATA)
+## V2.2 — Hardening pre-produzione (performance + sicurezza)
+
+> Dall'analisi di production-readiness (2026-06-15). Obiettivo: nessun collo di bottiglia su scala (più
+> operatori/prenotazioni) e copertura sicurezza per un servizio reale multi-tenant UE. `DbContext` pooling
+> ESCLUSO di proposito (vedi PH-5/R-24). i18n non incluso in questa fase.
+
+### Performance
+- [ ] **P1 Batch disponibilità "qualsiasi operatore"**: `AvailabilityService.AccumulateStaffAsync` fa 3 query per
+  operatore (orari/assenze/prenotazioni). Caricarle in **3 query totali** per tutti gli operatori (`WHERE
+  staff_id IN (...)`) e raggruppare in memoria.
+- [ ] **P2 Batch booking "qualsiasi"**: `ResolveStaffAsync` cicla N operatori con `ExecutesAllAsync` (M query) +
+  3 query slot. Ridurre a ~poche query: executes-all con un solo `IN`, batch di orari/assenze/prenotazioni.
+- [ ] **P3 Reminder: finestra + indice**: `ReminderEnqueuer` scandisce tutte le prenotazioni future. Restringere
+  alla finestra max di anticipo e aggiungere indice `(status, reminder_sent_at, booking_date)`.
+- [ ] **P4 Paginazione `GET /admin/bookings`**: oggi ritorna tutto. Aggiungere `page`/`pageSize` (default 50,
+  max 200) e risposta paginata.
+
+### Sicurezza
+- [ ] **S1 Rate limit creazione prenotazioni per API key**: policy dedicata su `POST /bookings` (limite più
+  basso, per chiave) contro lo spam con chiave pubblica esposta.
+- [ ] **S2 GDPR retention/erasure**: job che **anonimizza** i dati personali (nome/telefono/email/note) delle
+  prenotazioni oltre la retention (`Gdpr:RetentionDays`, default 365) e **purga** gli `OutboxEmail` inviati
+  oltre N giorni (contengono PII nell'HTML).
+- [ ] **S3 Lockout login admin**: tentativi falliti + blocco temporaneo (campi `User.FailedAccessCount`/
+  `LockoutEnd`), oltre al rate-limit per IP; risposta invariata per non rivelare gli account esistenti.
+- [ ] **S4 Rotazione/revoca API key**: Admin API `GET/POST/DELETE /admin/api-keys` (genera nuova chiave mostrata
+  una volta, lista per prefisso, revoca). La revoca è effettiva entro la TTL cache (60s).
+- [ ] **S5 Guard JWT secret in produzione**: all'avvio in Production fallire se il secret è il placeholder dev
+  (`change-me`) o troppo corto — evita deploy con segreto debole.
 
 > **Stato: pianificazione differita.** Non si parte finché V2 (email) e deploy non sono stabili.
 > NON è una Admin UI per i tenant (quella non esiste, vedi AD-09). È uno strumento **interno** per noi dev,
