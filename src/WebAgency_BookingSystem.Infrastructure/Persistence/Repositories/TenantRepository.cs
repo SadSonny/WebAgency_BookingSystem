@@ -61,6 +61,14 @@ internal sealed class TenantRepository : ITenantRepository
     public Task<Tenant?> GetBySlugAsync(string slug, CancellationToken ct = default) =>
         _db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Slug == slug, ct);
 
+    public async Task<IReadOnlyList<string>> GetActiveSiteUrlsAsync(CancellationToken ct = default) =>
+        // Tenant non è tenant-scoped (nessun global filter): query diretta sui tenant attivi con siteUrl valorizzato.
+        await _db.Tenants
+            .AsNoTracking()
+            .Where(t => t.Active && t.SiteUrl != "")
+            .Select(t => t.SiteUrl)
+            .ToListAsync(ct);
+
     public Task<IReadOnlyList<TenantBusinessHours>> GetBusinessHoursAsync(Guid tenantId, CancellationToken ct = default) =>
         _tenantCache.GetOrCreateAsync<IReadOnlyList<TenantBusinessHours>>(
             tenantId, "business-hours", TenantDataTtl,

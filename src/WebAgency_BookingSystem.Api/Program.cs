@@ -21,6 +21,7 @@ using WebAgency_BookingSystem.Api.Http;
 using WebAgency_BookingSystem.Api.Middleware;
 using WebAgency_BookingSystem.Infrastructure;
 using WebAgency_BookingSystem.Infrastructure.Auth;
+using WebAgency_BookingSystem.Infrastructure.Cors;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -87,24 +88,25 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
-// ── CORS (R-06) ───────────────────────────────────────────────────────────────
-// WHY: il widget di prenotazione gira nel browser e chiama l'API cross-origin. Le origini ammesse si
-// configurano in Cors:AllowedOrigins. Nessuna credenziale via cookie (auth via header X-Api-Key), quindi
-// non serve AllowCredentials. In sviluppo, se non sono configurate origini, si accetta qualsiasi origine.
-// NOTA: per un multi-tenant pieno le origini ideali derivano dal site_url di ciascun tenant (evoluzione futura).
+// ── CORS (R-06 / PH-1) ──────────────────────────────────────────────────────
+// WHY: il widget di prenotazione gira nel browser e chiama l'API cross-origin. Le origini ammesse sono
+// DINAMICHE e per-tenant (PH-1): derivano dai siteUrl dei tenant attivi (TenantOriginCatalog, aggiornato in
+// background), così onboardare un nuovo sito non richiede modifiche di config. In aggiunta, Cors:AllowedOrigins
+// resta una lista statica sempre ammessa (nostri tool/dashboard interni). Nessuna credenziale via cookie
+// (auth via header X-Api-Key), quindi non serve AllowCredentials. In sviluppo, se non sono configurate origini
+// statiche, si accetta qualsiasi origine per comodità di test.
 string[] allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+TenantOriginCatalog originCatalog = builder.Services.AddTenantCorsOrigins(builder.Configuration);
+var staticOrigins = new HashSet<string>(allowedOrigins, StringComparer.OrdinalIgnoreCase);
+bool devAllowAll = builder.Environment.IsDevelopment() && allowedOrigins.Length == 0;
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(CorsPolicies.Frontend, policy =>
     {
-        if (builder.Environment.IsDevelopment() && allowedOrigins.Length == 0)
-        {
-            policy.SetIsOriginAllowed(_ => true);
-        }
-        else
-        {
-            policy.WithOrigins(allowedOrigins);
-        }
+        // WHY: SetIsOriginAllowed è sincrona e gira a ogni richiesta → legge solo da strutture in-memory
+        // (set statico O(1) + catalogo tenant lock-free), mai dal DB.
+        policy.SetIsOriginAllowed(origin =>
+            devAllowAll || staticOrigins.Contains(origin) || originCatalog.IsAllowed(origin));
 
         policy.WithMethods("GET", "POST", "DELETE", "OPTIONS")
               .WithHeaders("X-Api-Key", "Content-Type");
