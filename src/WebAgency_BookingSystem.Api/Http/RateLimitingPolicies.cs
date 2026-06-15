@@ -10,4 +10,8 @@ internal static class RateLimitingPolicies
 {
     /// <summary>Policy per gli endpoint pubblici: sliding window per API key (fallback IP).</summary>
     public const string PublicApi = "PublicApi";
+
+    /// <summary>Policy più stringente per la CREAZIONE di prenotazioni (S1): per API key, limite basso
+    /// contro lo spam con chiave pubblica esposta.</summary>
+    public const string BookingCreation = "BookingCreation";
 }

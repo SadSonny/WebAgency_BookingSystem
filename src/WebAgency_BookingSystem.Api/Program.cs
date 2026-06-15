@@ -118,6 +118,16 @@ builder.Services.AddCors(options =>
 // generatore (Infrastructure) tramite JwtSettings, così firma e validazione restano coerenti. Le risposte
 // 401/403 sono riscritte nell'envelope d'errore del contratto.
 JwtSettings jwtSettings = JwtSettings.FromConfiguration(builder.Configuration);
+
+// WHY (S5): in produzione un segreto JWT debole è un rischio critico. Falliamo fast all'avvio se è ancora il
+// placeholder di sviluppo (contiene "change-me"): impedisce un deploy con segreto non sostituito.
+if (builder.Environment.IsProduction()
+    && jwtSettings.Secret.Contains("change-me", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException(
+        "JWT_SECRET non configurato per la produzione: è ancora il placeholder di sviluppo. Imposta un segreto reale (≥32 char).");
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -165,6 +175,12 @@ int ipPermitPerMinute = builder.Configuration.GetValue<int?>("RATE_LIMIT_IP_PER_
     ?? builder.Configuration.GetValue<int?>("RateLimiting:IpPermitPerMinute")
     ?? 300;
 
+// WHY (S1): la creazione di prenotazioni è l'azione costosa/sensibile (scrive sul DB, manda email). Con una
+// API key pubblica esposta nel frontend, va limitata più strettamente del resto per arginare lo spam.
+int bookingPerMinute = builder.Configuration.GetValue<int?>("RATE_LIMIT_BOOKING_PER_MINUTE")
+    ?? builder.Configuration.GetValue<int?>("RateLimiting:BookingPerMinute")
+    ?? 10;
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -199,6 +215,22 @@ builder.Services.AddRateLimiter(options =>
         return RateLimitPartition.GetSlidingWindowLimiter($"key:{partitionKey}", _ => new SlidingWindowRateLimiterOptions
         {
             PermitLimit = permitPerMinute,
+            Window = TimeSpan.FromMinutes(1),
+            SegmentsPerWindow = 6,
+            QueueLimit = 0,
+        });
+    });
+
+    // S1: policy stringente per la creazione prenotazioni, partizionata per API key (fallback IP).
+    options.AddPolicy(RateLimitingPolicies.BookingCreation, httpContext =>
+    {
+        string partitionKey = httpContext.Request.Headers["X-Api-Key"].FirstOrDefault()
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "anonymous";
+
+        return RateLimitPartition.GetSlidingWindowLimiter($"booking:{partitionKey}", _ => new SlidingWindowRateLimiterOptions
+        {
+            PermitLimit = bookingPerMinute,
             Window = TimeSpan.FromMinutes(1),
             SegmentsPerWindow = 6,
             QueueLimit = 0,

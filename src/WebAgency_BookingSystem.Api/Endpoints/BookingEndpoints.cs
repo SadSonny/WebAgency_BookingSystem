@@ -40,7 +40,9 @@ internal static class BookingEndpoints
             dati o le regole (anticipo, finestra prenotabile) non sono soddisfatti.
             """)
         .WithTags("Prenotazioni")
-        .RequireRateLimiting(RateLimitingPolicies.PublicApi)
+        // S1: la creazione usa un limite per-chiave più stringente (anti-spam); più basso del PublicApi, quindi
+        // lo sostituisce. Il GlobalLimiter per IP resta comunque applicato.
+        .RequireRateLimiting(RateLimitingPolicies.BookingCreation)
         .Produces<CreateBookingResponse>(StatusCodes.Status201Created)
         .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
         .Produces<ErrorResponse>(StatusCodes.Status403Forbidden)
