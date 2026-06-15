@@ -1,18 +1,22 @@
 # Development Plan — WebAgency BookingSystem
 
-## Stato: HARDENING PRODUZIONE PH-1..PH-5 COMPLETATO (2026-06-15)
+## Stato: V2.1 SALONE REALE (Tier 1+2) COMPLETATO (2026-06-15)
 
-> **V1 validata + V2 email + hardening produzione**: infra, Core, Infrastructure, middleware, endpoint pubblici
-> (5.1–5.8), Admin API (6.1–6.14), CLI provisioning (7.x), email transazionale (Sezione 8), **hardening PH-1..PH-5**.
-> Build verde (0 warning), **103 test verdi** (87 unit + 16 integration con Testcontainers).
-> Hardening (2026-06-15): **CORS per-tenant dinamico** (PH-1), **advisory lock bloccante** anti-409-spurio (PH-2),
-> **email outbox transazionale** con dispatcher/retry (PH-3), **user-secrets** dev (PH-4), **confronti DST-corretti** (PH-5).
-> Email (AD-10/AD-11): renderer HTML inline + provider per ambiente (**Mailpit dev** / **Brevo prod**), invio via outbox.
+> **V1 + V2 email + hardening PH-1..PH-5 + V2.1 salone reale**: infra, Core, Infrastructure, middleware, endpoint
+> pubblici (5.1–5.8), Admin API (6.1–6.14), CLI provisioning (7.x), email transazionale (Sez. 8), hardening
+> PH-1..PH-5, **funzionalità salone reale Tier 1+2**.
+> Build verde (0 warning), **119 test verdi** (95 unit + 24 integration con Testcontainers).
+> V2.1 (2026-06-15): **assenze operatore** (T1.1), **"qualsiasi operatore" auto-assegnato** con disponibilità
+> aggregata (T1.2), **appuntamento multi-servizio** un operatore (T1.3), **cancellazione admin → email cliente**
+> (T2.1), **reschedule cliente** (T2.2), **reminder pre-appuntamento** configurabile (T2.3).
+> Email via outbox transazionale; provider Mailpit dev / Brevo prod (AD-10/AD-11).
 > Regola operativa: **non scrivere codice senza "vai" esplicito dall'utente nella sessione corrente.**
 
 ### Prossimo task da eseguire
-**Hardening PH-1..PH-5 COMPLETATO** (2026-06-15): vedi sezione "Hardening Produzione". 103 test verdi.
-**→ Prossimo:** Railway deploy (impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato). Poi 8.7 (branding template) quando si definisce la grafica. **NON** è prevista una Admin UI (vedi nota sotto).
+**V2.1 Tier 1+2 COMPLETATO** (2026-06-15): vedi sezione "V2.1 — Salone reale". 119 test verdi.
+**→ Prossimo:** Railway deploy (`EMAIL_PROVIDER=Brevo` + `BREVO_*` con mittente verificato; applicare le migration
+incl. AddStaffTimeOff/AddBookingItems/AddReminderFields). Follow-up V2.1: disponibilità combinata combo, template
+email multi-servizio, reschedule admin. Poi 8.7 (branding). **NON** è prevista una Admin UI (vedi nota sotto).
 
 > **Direzione prodotto (2026-06-14):** il sistema è un **backend API-only** pensato perché siti web esterni
 > dei tenant si colleghino via API. **Non si sviluppa una Admin UI**: la gestione resta via API admin + CLI.
@@ -181,25 +185,27 @@
 > escluso per ora.
 
 ### Tier 1 — abilitanti per il salone reale
-- [ ] **T1.1 Assenze per operatore** (`StaffTimeOff`): entità + migration + repo + Admin CRUD
-  (`/admin/staff/{id}/time-off`). Integrazione availability: giorno intero → niente slot per quell'operatore;
-  fascia parziale → intervallo bloccante. Unit + integration test.
-- [ ] **T1.2 "Qualsiasi operatore"**: senza `staffId` la disponibilità aggrega le agende dei soli operatori
-  **qualificati** (che eseguono il servizio), considerando orari/assenze/prenotazioni individuali; alla
-  creazione il sistema **auto-assegna** un operatore libero. Fallback su `parallelSlots` solo per servizi
-  senza staff assegnato. Rework `AvailabilityService`/`AvailabilityCalculator` + booking. Test.
-- [ ] **T1.3 Appuntamento multi-servizio** (un operatore): `BookingItem` (lista ordinata di servizi, durata/prezzo
-  snapshot), durata totale = somma, slot **consecutivi**, operatore che esegue **tutti** i servizi richiesti.
-  Rework request `POST /bookings` (lista servizi), creazione e disponibilità (blocco continuo). Email aggiornate. Test.
+- [x] **T1.1 Assenze per operatore** (`StaffTimeOff`): entità + migration + repo + Admin CRUD
+  (`/admin/staff/{id}/time-off`). Giorno intero → niente slot per quell'operatore; fascia parziale → intervallo
+  bloccante (`AvailabilityCalculator.staffBlocks`). +6 unit + 2 integration.
+- [x] **T1.2 "Qualsiasi operatore"**: senza `staffId` la disponibilità aggrega le agende dei soli operatori
+  qualificati (`AvailabilityService.AccumulateStaffAsync`); alla creazione `ResolveStaffAsync` **auto-assegna**
+  il primo operatore libero. Fallback `parallelSlots` per servizi senza operatori. +2 integration.
+- [x] **T1.3 Appuntamento multi-servizio** (un operatore): `BookingItem` + migration; `POST /bookings` accetta
+  `additionalServiceIds` (additivo), durata/prezzo = somma, blocco continuo, operatore che esegue tutti i servizi
+  (`ExecutesAllAsync`); dettaglio elenca i servizi. +2 integration.
+  **Follow-up (non bloccanti):** disponibilità combinata per combo via `GET /availability` (oggi singolo
+  servizio); template email che elenca tutti i servizi (oggi mostra il principale + durata totale).
 
 ### Tier 2 — qualità servizio / anti no-show
-- [ ] **T2.1 Cancellazione da admin notifica il cliente**: `PATCH /admin/bookings/{id}` → `cancelled` accoda
-  l'email di disdetta (oggi non avvisa). Quick win, nessuno schema.
-- [ ] **T2.2 Reschedule / modifica appuntamento**: endpoint cliente (`PUT /bookings/{id}/reschedule?token=`) +
-  admin; ri-verifica disponibilità sotto lock, rispetta anticipo/preavviso, email di avvenuta modifica. Test.
-- [ ] **T2.3 Reminder pre-appuntamento**: campi tenant (`ReminderHoursBefore` default 24, abilitato con
-  notifiche email), `Booking.ReminderSentAt`, `EmailKind.Reminder` + template, scheduler (BackgroundService)
-  che accoda i reminder dovuti. Test.
+- [x] **T2.1 Cancellazione da admin notifica il cliente**: `PATCH /admin/bookings/{id}` → `cancelled` accoda
+  l'email di disdetta (solo Confirmed→Cancelled).
+- [x] **T2.2 Reschedule / modifica appuntamento**: `PUT /bookings/{id}/reschedule?token=` (cliente) — ri-verifica
+  disponibilità sotto lock escludendo se stessa, rispetta anticipo/preavviso, notifica con dati aggiornati.
+  +2 integration. **Follow-up:** endpoint reschedule lato admin (oggi l'admin può disdire+riprenotare).
+- [x] **T2.3 Reminder pre-appuntamento**: `Tenant.ReminderHoursBefore` (default 24, 0=off, con notifiche email),
+  `Booking.ReminderSentAt`, `EmailKind.Reminder` + template, `ReminderJob` (BackgroundService) → `IReminderEnqueuer`
+  accoda i promemoria dovuti nella outbox. +4 unit.
 
 > **Escluso (Tier 3, eventuale V2.2+):** anagrafica cliente + storico, acconti/pagamenti, reportistica titolare,
 > SMS/WhatsApp, waitlist, ricorrenti, multi-sede.
@@ -284,6 +290,7 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-13 | Test | 9.7 (D-10): `BufferTests` integration — ServizioBuffer (30min, After, 15min): 10:00→201, 10:30→409 (dentro buffer), 10:45→201 (fuori buffer). `SeedAsync` esteso con `EnsureLaterSeedAsync` per container reuse. Suite totale: **59 test verdi**. |
 | 2026-06-13 | Feature | `ExpiredBookingCleanupJob`: BackgroundService che ogni 60 min (configurabile `CleanupJob:IntervalMinutes`) segna NoShow le prenotazioni Confirmed scadute nel timezone del tenant. `IgnoreQueryFilters()` per operazione cross-tenant. Aggiunto `Microsoft.Extensions.Hosting.Abstractions 10.0.0`. Build 0 warning. |
 | 2026-06-14 | Email V2 | **Sezione 8 completata.** Sottosistema email multi-provider (AD-10/AD-11): renderer template HTML inline italiani (conferma/notifica titolare/disdetta), `MailpitEmailService` (SMTP/MailKit, dev) + `BrevoEmailClient` (REST, prod) dietro `RenderedEmailService`, switch per ambiente via `Email:Provider`. Invio fire-and-forget post-commit in `BookingService`. Mailpit nel docker-compose. Test: +14 unit (renderer+settings) e +1 integration smoke Mailpit. **76 test verdi** (62 unit + 14 integration), build 0 warning. Branding template rimandato (8.7). |
+| 2026-06-15 | Salone reale | **V2.1 Tier 1+2 completati**: assenze operatore StaffTimeOff (T1.1), "qualsiasi operatore" con disponibilità aggregata + auto-assegnazione (T1.2), appuntamento multi-servizio un operatore BookingItem (T1.3), cancellazione admin notifica cliente (T2.1), reschedule cliente via token (T2.2), reminder pre-appuntamento configurabile (T2.3). 3 migration (StaffTimeOff, BookingItems, ReminderFields). Build 0 warning, **119 test verdi** (95 unit + 24 integration). Follow-up: disponibilità combinata combo, template email multi-servizio, reschedule admin. |
 | 2026-06-15 | Hardening | **PH-1..PH-5 completati**: CORS per-tenant dinamico dai siteUrl (catalogo + refresh job); advisory lock bloccante con lock_timeout anti-409-spurio su parallelSlots>1 (R-17); email outbox transazionale con dispatcher/retry, refactor trasporto IEmailSender + migration AddEmailOutbox (R-25); user-secrets dev (R-16); confronti DST-corretti via TenantTime.ToInstant (R-32); pooling (R-24) non implementato di proposito con motivazione. Build 0 warning, **103 test verdi** (87 unit + 16 integration). |
 | 2026-06-14 | Direzione | Confermato prodotto **API-only senza Admin UI** (AD-09). Aggiunta **Sezione 10** (dashboard interna dev per observability cross-tenant), rimandata. Avvio V2 email Brevo. |
 | 2026-06-13 | Test | 9.8: logica estratta in `IExpiredBookingCleaner` (scoped, testabile in isolation). `CleanupJobTests`: prenotazione ieri → NoShow, prenotazione futura → invariata. `InternalsVisibleTo` per IntegrationTests. Fix `EnsureLaterSeedAsync` con `IgnoreQueryFilters()`. Suite: **61 test verdi** (48 unit + 13 integration). |

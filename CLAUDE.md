@@ -10,7 +10,9 @@
 > Build `dotnet build` verde (0 warning, analyzer + warnings-as-errors). 41 unit test verdi.
 > Tutti gli endpoint validati a runtime con Docker. Nessun bug trovato.
 
-**Fase attuale:** V1 validata + **V2 email** + **hardening produzione PH-1..PH-5** (2026-06-15). **103 test verdi** (87 unit + 16 integration).
+**Fase attuale:** V1 + **V2 email** + **hardening PH-1..PH-5** + **V2.1 salone reale Tier 1+2** (2026-06-15). **119 test verdi** (95 unit + 24 integration).
+
+**V2.1 — Salone reale (2026-06-15):** assenze per operatore (`StaffTimeOff`, admin `/admin/staff/{id}/time-off`); **"qualsiasi operatore" auto-assegnato** con disponibilità aggregata sulle agende reali (`parallelSlots` solo per servizi senza operatori); **appuntamento multi-servizio** un operatore (`POST /bookings` con `additionalServiceIds`, durata/prezzo sommati, `BookingItem`); cancellazione admin → email cliente; **reschedule** cliente (`PUT /bookings/{id}/reschedule?token=`); **reminder** pre-appuntamento (`Tenant.ReminderHoursBefore`, default 24). 3 migration nuove. Follow-up: disponibilità combinata combo, template email multi-servizio, reschedule admin. Dettagli in `Claude_Instructions/DEVELOPMENT_PLAN.md` §V2.1.
 
 **Email (Sezione 8, AD-10/AD-11 + PH-3):** provider per ambiente via `Email:Provider` — **Mailpit in dev** (SMTP locale, cattura, zero verifica mittente; UI `http://localhost:8025`), **Brevo in prod** (REST). Template HTML inline italiani (`EmailTemplateRenderer`). **Invio via OUTBOX transazionale** (PH-3): l'email è accodata (`OutboxEmail`) nella transazione del booking e inviata da `EmailOutboxDispatcher` con retry/backoff; trasporto `IEmailSender` (Mailpit/Brevo/Null) separato dal contenuto. Admin UI **non** prevista (AD-09); unica UI futura = dashboard interna dev (Sezione 10, rimandata).
 

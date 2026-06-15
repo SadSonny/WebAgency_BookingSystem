@@ -139,13 +139,18 @@ nessun 409 spurio sui servizi multi-posto `parallelSlots>1` — le richieste leg
 // Richiesta
 { "serviceId": "…", "staffId": null, "date": "2026-06-22", "time": "10:00",
   "customer": { "name": "Luca Bianchi", "phone": "+39 333 1234567", "email": "luca@example.it", "notes": "…" },
-  "gdprConsent": true }
+  "gdprConsent": true,
+  "additionalServiceIds": [] }
 ```
 ```json
 // 201 Created
 { "bookingId": "…", "status": "confirmed", "cancellationToken": "…" }
 ```
 → Esiti: `201` ok · `409 slot_unavailable` slot pieno/conteso · `422 validation_error` dati o regole (anticipo minimo, finestra prenotabile, giorno chiuso) · `400 bad_request` JSON malformato.
+> **Operatore (T1.2):** con `staffId: null` ("qualsiasi") il sistema **auto-assegna** un operatore qualificato
+> libero; con `staffId` specifico verifica che esegua i servizi richiesti e sia libero.
+> **Multi-servizio (T1.3):** `additionalServiceIds` (opzionale) aggiunge servizi svolti **consecutivamente dallo
+> stesso operatore**; durata e prezzo dell'appuntamento sono la **somma**. L'operatore deve eseguire **tutti** i servizi.
 > ⚠ **Conserva il `cancellationToken`**: è l'unico modo per consultare/disdire la prenotazione senza login.
 > Alla creazione le email (conferma al cliente + notifica al titolare) sono **accodate in una outbox
 > transazionale** e inviate da un dispatcher in background con retry: la consegna è garantita anche se il
@@ -157,8 +162,20 @@ Richiede `id` + `token`. **404 neutro** se non combaciano (non rivela l'esistenz
 { "bookingId": "…", "status": "confirmed", "date": "2026-06-22", "time": "10:00", "durationMin": 30,
   "service": { "id": "…", "name": "Taglio Uomo" }, "staff": { "id": "…", "name": "Marco" },
   "customer": { "name": "Luca Bianchi", "email": "luca@example.it" },
-  "canCancel": true, "cancellationDeadline": "2026-06-21T10:00:00" }
+  "canCancel": true, "cancellationDeadline": "2026-06-21T10:00:00",
+  "services": [ { "id": "…", "name": "Taglio Uomo" } ] }
 ```
+> `services` elenca tutti i servizi dell'appuntamento in ordine (T1.3); `service` resta il principale.
+
+#### `PUT /api/v1/bookings/{id}/reschedule?token={guid}` — Sposta prenotazione (T2.2)
+Sposta una prenotazione **confermata** a una nuova data/ora mantenendo servizi e operatore. Ri-verifica la
+disponibilità del nuovo slot sotto advisory lock (escludendo se stessa).
+```json
+// Richiesta
+{ "date": "2026-06-23", "time": "11:30" }
+```
+→ `200` con il dettaglio aggiornato · `403` oltre il preavviso · `409 slot_unavailable` nuovo slot occupato ·
+`422` se la prenotazione non è modificabile o lo slot non è prenotabile · `404` neutro se id/token non combaciano.
 
 #### `DELETE /api/v1/bookings/{id}?token={guid}` — Disdici prenotazione
 Disdetta del cliente via `id` + `token`. `403` se oltre il preavviso minimo (`minCancellationHours`), `404` neutro se id/token non combaciano.
@@ -184,7 +201,7 @@ Il JWT (validità default 8h) porta `user_id`, `tenant_id`, `role`. Usalo come h
 | Metodo | Path | Azione |
 |---|---|---|
 | `GET` | `/api/v1/admin/bookings` | Lista con filtri query: `dateFrom`, `dateTo`, `staffId`, `serviceId`, `status` (`confirmed`/`cancelled`/`no_show`/`completed`) |
-| `PATCH` | `/api/v1/admin/bookings/{id}` | Aggiorna stato (es. `no_show`, `completed`, `cancelled`); registra audit |
+| `PATCH` | `/api/v1/admin/bookings/{id}` | Aggiorna stato (`no_show`/`completed`/`cancelled`); audit. Il passaggio a `cancelled` **notifica il cliente** via email (T2.1) |
 
 #### Servizi (CRUD)
 | Metodo | Path | Azione |
@@ -201,6 +218,18 @@ Il JWT (validità default 8h) porta `user_id`, `tenant_id`, `role`. Usalo come h
 | `POST` | `/api/v1/admin/staff` | Crea (con assegnazione servizi + orari) → `201` |
 | `PUT` | `/api/v1/admin/staff/{id}` | Aggiorna |
 | `DELETE` | `/api/v1/admin/staff/{id}` | Soft delete → `204` (+ invalidazione cache) |
+
+#### Assenze operatore (T1.1)
+| Metodo | Path | Azione |
+|---|---|---|
+| `GET` | `/api/v1/admin/staff/{id}/time-off` | Elenca le assenze (ferie/malattia/permessi) |
+| `POST` | `/api/v1/admin/staff/{id}/time-off` | Crea un'assenza → `201` |
+| `DELETE` | `/api/v1/admin/staff/{id}/time-off/{timeOffId}` | Elimina → `204` |
+```json
+// POST body: giornata intera (orari null) oppure fascia oraria (startTime+endTime)
+{ "dateFrom": "2026-08-12", "dateTo": "2026-08-16", "startTime": null, "endTime": null, "reason": "Ferie" }
+```
+> L'operatore assente è escluso dalla disponibilità (giorno intero → giorno escluso; fascia → slot sovrapposti non prenotabili).
 
 #### Orari e chiusure (sostituzione in blocco)
 | Metodo | Path | Body | Azione |
@@ -307,9 +336,11 @@ dotnet run --project tools/WebAgency_BookingSystem.TenantProvisioning -- \
 - **Variabili d'ambiente** (Railway): `DATABASE_URL`, `JWT_SECRET` (≥32 char), `EMAIL_PROVIDER=Brevo`,
   `BREVO_API_KEY`, `BREVO_SENDER_EMAIL` (mittente **verificato** su Brevo), `BREVO_SENDER_NAME`,
   eventuali `RATE_LIMIT_*`, `Cors__AllowedOrigins__0=…`. La porta è iniettata via `PORT`.
-  Ricorda di applicare le **migration** (incl. `AddEmailOutbox`) al deploy.
+  Ricorda di applicare le **migration** (incl. `AddEmailOutbox`, `AddStaffTimeOff`, `AddBookingItems`, `AddReminderFields`) al deploy.
 - **Email**: `Mailpit` in sviluppo (cattura, UI `:8025`), `Brevo` in produzione. Invio via **outbox
   transazionale** con retry/backoff (dispatcher in background, `Email:Outbox:PollSeconds`). Vedi `.env.example`.
+- **Promemoria (T2.3)**: email pre-appuntamento inviata `Tenant.ReminderHoursBefore` ore prima (default 24,
+  0=off, solo se notifiche email attive). Scheduler `Reminder:PollMinutes` (default 15).
 - **CORS multi-tenant (PH-1)**: le origini ammesse derivano **automaticamente** dai `siteUrl` dei tenant attivi,
   aggiornate in background ogni `Cors:OriginRefreshSeconds` (default 60s) — onboardare un nuovo sito non richiede
   modifiche di config. `Cors:AllowedOrigins` resta una allowlist statica **aggiuntiva** (es. tool interni).

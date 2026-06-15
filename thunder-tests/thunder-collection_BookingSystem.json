@@ -68,7 +68,7 @@
       "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
       "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" }, { "name": "Content-Type", "value": "application/json" } ],
       "params": [],
-      "body": { "type": "json", "raw": "{\n  \"serviceId\": \"{{serviceId}}\",\n  \"staffId\": null,\n  \"date\": \"{{date}}\",\n  \"time\": \"{{time}}\",\n  \"customer\": {\n    \"name\": \"Luca Bianchi\",\n    \"phone\": \"+39 333 1234567\",\n    \"email\": \"luca@example.it\",\n    \"notes\": \"Prenotazione di test da Thunder Client\"\n  },\n  \"gdprConsent\": true\n}", "form": [] },
+      "body": { "type": "json", "raw": "{\n  \"serviceId\": \"{{serviceId}}\",\n  \"staffId\": null,\n  \"date\": \"{{date}}\",\n  \"time\": \"{{time}}\",\n  \"customer\": {\n    \"name\": \"Luca Bianchi\",\n    \"phone\": \"+39 333 1234567\",\n    \"email\": \"luca@example.it\",\n    \"notes\": \"Prenotazione di test da Thunder Client\"\n  },\n  \"gdprConsent\": true,\n  \"additionalServiceIds\": []\n}", "form": [] },
       "tests": [
         { "type": "res-code", "custom": "", "action": "equal", "value": "201" },
         { "type": "set-env-var", "custom": "json.bookingId", "action": "setto", "value": "bookingId" },
@@ -91,6 +91,16 @@
       "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" } ],
       "params": [ { "name": "token", "value": "{{cancellationToken}}", "isPath": false } ],
       "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-reschedule-booking", "colId": "col-booking-system", "containerId": "fld-pub", "name": "PUT bookings/{id}/reschedule (sposta)",
+      "url": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/reschedule", "method": "PUT", "sortNum": 65000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "X-Api-Key", "value": "{{apiKey}}" }, { "name": "Content-Type", "value": "application/json" } ],
+      "params": [ { "name": "token", "value": "{{cancellationToken}}", "isPath": false } ],
+      "body": { "type": "json", "raw": "{\n  \"date\": \"{{date}}\",\n  \"time\": \"16:00\"\n}", "form": [] },
+      "tests": [],
+      "docs": "Sposta la prenotazione corrente (bookingId/token) a una nuova data/ora; servizi e operatore invariati."
     },
     {
       "_id": "req-admin-login", "colId": "col-booking-system", "containerId": "fld-adm", "name": "POST admin/auth/token (LOGIN → setta adminJwt)",
@@ -181,6 +191,22 @@
       "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
       "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" } ], "params": [],
       "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-admin-list-timeoff", "colId": "col-booking-system", "containerId": "fld-adm", "name": "GET admin/staff/{id}/time-off (assenze)",
+      "url": "{{baseUrl}}/api/v1/admin/staff/{{staffId}}/time-off", "method": "GET", "sortNum": 112000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" } ], "params": [],
+      "body": { "type": "none", "raw": "", "form": [] }, "tests": []
+    },
+    {
+      "_id": "req-admin-add-timeoff", "colId": "col-booking-system", "containerId": "fld-adm", "name": "POST admin/staff/{id}/time-off (aggiungi assenza)",
+      "url": "{{baseUrl}}/api/v1/admin/staff/{{staffId}}/time-off", "method": "POST", "sortNum": 113000,
+      "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
+      "headers": [ { "name": "Authorization", "value": "Bearer {{adminJwt}}" }, { "name": "Content-Type", "value": "application/json" } ], "params": [],
+      "body": { "type": "json", "raw": "{\n  \"dateFrom\": \"2026-08-12\",\n  \"dateTo\": \"2026-08-16\",\n  \"startTime\": null,\n  \"endTime\": null,\n  \"reason\": \"Ferie\"\n}", "form": [] },
+      "tests": [],
+      "docs": "Giornata intera: startTime/endTime null. Fascia oraria: valorizza entrambi (es. 15:00-16:00)."
     },
     {
       "_id": "req-admin-business-hours", "colId": "col-booking-system", "containerId": "fld-adm", "name": "PUT admin/business-hours (in blocco)",
