@@ -1,10 +1,11 @@
-// [INTENT]: Implementazione EF Core di IUserRepository. La ricerca per (tenant, email) avviene al login,
-// prima che il tenant corrente sia risolto: IgnoreQueryFilters + filtro esplicito su TenantId. AsNoTracking
-// perché l'esito è di sola lettura (verifica password).
+// [INTENT]: Implementazione EF Core di IUserRepository. La ricerca per email è GLOBALE (un'email = un account)
+// e avviene al login, prima che il tenant corrente sia risolto: IgnoreQueryFilters per bypassare il global query
+// filter. Gestisce anche i token di sicurezza (attivazione/reset) e la lettura della SecurityStamp.
 
 using Microsoft.EntityFrameworkCore;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Entities;
+using WebAgency_BookingSystem.Core.Enums;
 
 namespace WebAgency_BookingSystem.Infrastructure.Persistence.Repositories;
 
@@ -14,11 +15,52 @@ internal sealed class UserRepository : IUserRepository
 
     public UserRepository(BookingSystemDbContext db) => _db = db;
 
-    public Task<User?> GetByTenantAndEmailAsync(Guid tenantId, string email, CancellationToken ct = default) =>
+    public Task<User?> GetByEmailAsync(string email, CancellationToken ct = default) =>
         _db.Users
             .AsNoTracking()
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(u => u.TenantId == tenantId && u.Email == email, ct);
+            .FirstOrDefaultAsync(u => u.Email == email, ct);
+
+    public Task<User?> GetTrackedByIdAsync(Guid userId, CancellationToken ct = default) =>
+        _db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Id == userId, ct);
+
+    public async Task<Guid?> GetSecurityStampAsync(Guid userId, CancellationToken ct = default)
+    {
+        var row = await _db.Users
+            .AsNoTracking().IgnoreQueryFilters()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.SecurityStamp })
+            .FirstOrDefaultAsync(ct);
+        return row?.SecurityStamp;
+    }
+
+    public async Task AddTokenInvalidatingPreviousAsync(UserSecurityToken token, CancellationToken ct = default)
+    {
+        // WHY: un solo token attivo per scopo: marchiamo "usati" i precedenti ancora validi prima di aggiungere.
+        // NON salviamo qui: il chiamante chiama SaveChangesAsync così l'email può entrare nella stessa transazione.
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        List<UserSecurityToken> previous = await _db.UserSecurityTokens
+            .IgnoreQueryFilters()
+            .Where(t => t.UserId == token.UserId && t.Purpose == token.Purpose && t.UsedAt == null && t.ExpiresAt > now)
+            .ToListAsync(ct);
+        foreach (UserSecurityToken t in previous)
+        {
+            t.UsedAt = now;
+        }
+
+        _db.UserSecurityTokens.Add(token);
+    }
+
+    public Task<UserSecurityToken?> GetValidTokenAsync(string tokenHash, SecurityTokenPurpose purpose, CancellationToken ct = default)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        return _db.UserSecurityTokens
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash && t.Purpose == purpose
+                                      && t.UsedAt == null && t.ExpiresAt > now, ct);
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => _db.SaveChangesAsync(ct);
 
     public async Task RegisterFailedAttemptAsync(Guid userId, int lockoutThreshold, TimeSpan lockoutDuration, CancellationToken ct = default)
     {
