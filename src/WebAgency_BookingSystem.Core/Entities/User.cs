@@ -1,6 +1,6 @@
 // [INTENT]: Utente admin di un tenant (AD-02). Multi-utente con ruoli, autenticazione JWT (layer admin).
 // La password è conservata solo come hash (bcrypt, generato nel layer Infrastructure/CLI). Email univoca
-// per tenant.
+// a livello globale (un'email = un account = un'attività). PasswordHash nullable fino ad attivazione account.
 
 using WebAgency_BookingSystem.Core.Enums;
 
@@ -17,11 +17,17 @@ public class User : IAuditableEntity
     /// <summary>Tenant di appartenenza.</summary>
     public Guid TenantId { get; set; }
 
-    /// <summary>Email di login, univoca all'interno del tenant.</summary>
+    /// <summary>Email di login, univoca a livello globale (un'email = un account).</summary>
     public string Email { get; set; } = string.Empty;
 
-    /// <summary>Hash bcrypt della password. Mai la password in chiaro.</summary>
-    public string PasswordHash { get; set; } = string.Empty;
+    /// <summary>Hash bcrypt della password; null finché l'account non è stato attivato dall'Owner.</summary>
+    public string? PasswordHash { get; set; }
+
+    /// <summary>Istante di attivazione dell'account (UTC); null se mai attivato.</summary>
+    public DateTimeOffset? ActivatedAt { get; set; }
+
+    /// <summary>Marca di sicurezza: cambia a ogni mutazione di password e invalida i JWT emessi prima.</summary>
+    public Guid SecurityStamp { get; set; } = Guid.NewGuid();
 
     /// <summary>Ruolo di autorizzazione.</summary>
     public UserRole Role { get; set; } = UserRole.Owner;

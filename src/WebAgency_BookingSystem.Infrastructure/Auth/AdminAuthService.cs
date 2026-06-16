@@ -59,7 +59,9 @@ internal sealed class AdminAuthService : IAdminAuthService
             return invalid;
         }
 
-        if (!VerifyPassword(request.Password, user.PasswordHash))
+        // WHY: PasswordHash è nullable (account non ancora attivato). Se null, nessuna password è valida:
+        // trattiamo come credenziale errata senza rivelare lo stato dell'account al client.
+        if (user.PasswordHash is null || !VerifyPassword(request.Password, user.PasswordHash))
         {
             await _users.RegisterFailedAttemptAsync(user.Id, MaxFailedAttempts, LockoutDuration, ct);
             _logger.LogWarning("Login admin fallito (password errata) per utente {UserId} tenant {TenantId}", user.Id, tenant.Id);
