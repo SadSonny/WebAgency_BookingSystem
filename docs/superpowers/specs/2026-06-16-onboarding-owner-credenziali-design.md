@@ -20,6 +20,18 @@ Obiettivo: dare all'Owner il controllo sicuro delle proprie credenziali tramite 
 | D2 | Identità di login | **Solo email** (univoca a livello globale tra tutti i tenant). Un'email = un account = un'attività. |
 | D3 | Landing del link | **Pagina HTML minimale servita dall'API** (deroga controllata ad AD-09: solo pagine tecniche di set-password, non una dashboard). |
 | D4 | Scope opzionale | Inclusi **tutti e tre**: reset "password dimenticata", invalidazione JWT post-cambio (SecurityStamp), policy password configurabile. |
+| D5 | Dove vive il login | **Modello A — sul sito del cliente.** Il form di login e il pannello di gestione li costruisce l'agenzia sul sito del cliente; chiamano la nostra API (`/admin/auth/token`) per ottenere il JWT. **Non** siamo un identity provider: nessun redirect a una "nostra pagina di login". L'API ospita **solo** le pagine set-password da email (D3). |
+
+### 2.1 Divisione delle responsabilità (Modello A)
+
+| Responsabilità | Chi |
+|---|---|
+| Form di login Owner + pannello gestione prenotazioni | **Sito del cliente** (costruito dall'agenzia) |
+| Verifica credenziali, lockout, rilascio JWT | **Nostra API** (`POST /admin/auth/token`) |
+| Pagine "imposta/reimposta password" (atterraggio link email) | **Nostra API** (HTML minimale) |
+
+- L'integrazione sito↔API è già supportata dal **CORS per-tenant** (PH-1) e dal `siteUrl` del catalogo.
+- Le pagine set-password, **al successo**, mostrano un link/redirect verso il login sul sito del cliente: l'URL è derivato dal `siteUrl` del tenant del token (config `Tenant.SiteUrl`, eventualmente con path di login configurabile, default `{siteUrl}`). Così l'owner, dopo aver impostato la password sulla nostra pagina, torna nel flusso del proprio sito.
 
 ## 3. Flusso end-to-end
 
