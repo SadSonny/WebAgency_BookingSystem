@@ -1,13 +1,21 @@
 # Development Plan — WebAgency BookingSystem
 
-## Stato: V2.2 HARDENING (performance + sicurezza) COMPLETATO (2026-06-15)
+## Stato: V2.3 ONBOARDING CREDENZIALI OWNER COMPLETATO (2026-06-16)
+
+> **V1 + V2 email + PH-1..PH-5 + V2.1 salone reale + V2.2 hardening + V2.3 onboarding Owner.** Build verde
+> (0 warning), **127 test verdi** (96 unit + 31 integration). V2.3 (2026-06-16): login email globale [breaking],
+> attivazione Owner via link email, cambio/reset password, SecurityStamp+invalidazione JWT, pagine HTML
+> set-password in API (deroga AD-09), rate-limit AccountSecurity, 2 migration nuove, fix JWT
+> MapInboundClaims/KeyId.
+> **→ Prossimo:** Railway deploy (applicare TUTTE le migration incl. le 2 nuove V2.3; impostare
+> `PUBLIC_BASE_URL`; smoke test login admin post-fix JWT). Vedi §V2.3 per i dettagli.
+
+## (storico) Stato: V2.2 HARDENING (performance + sicurezza) COMPLETATO (2026-06-15)
 
 > **V1 + V2 email + PH-1..PH-5 + V2.1 salone reale + V2.2 hardening.** Build verde (0 warning), **120 test
 > verdi** (95 unit + 25 integration). V2.2 (2026-06-15): batch disponibilità/booking (P1/P2), reminder
 > finestra+indice (P3), paginazione admin (P4); rate-limit creazione per chiave (S1), retention/erasure GDPR
 > (S2), lockout login admin (S3), rotazione/revoca API key (S4), guard JWT prod (S5). `DbContext` pooling escluso.
-> **→ Prossimo:** Railway deploy (env `EMAIL_PROVIDER=Brevo`/`BREVO_*`, JWT_SECRET reale; applicare TUTTE le
-> migration). Vedi §V2.2 e §V2.1 per i dettagli.
 
 ## (storico) Stato: V2.1 SALONE REALE (Tier 1+2) COMPLETATO (2026-06-15)
 
@@ -92,7 +100,7 @@ email multi-servizio, reschedule admin. Poi 8.7 (branding). **NON** è prevista 
 - [x] 5.8 `DELETE /api/v1/bookings/{id}?token=...` — 403 oltre preavviso
 
 ### 6. Admin API
-- [x] 6.1 `POST /api/v1/admin/auth/token` (tenantSlug + email + password → JWT) — login per slug (D-15)
+- [x] 6.1 `POST /api/v1/admin/auth/token` (email + password → JWT) — login per email globale (V2.3: rimosso tenantSlug; vedi D-V2.3-1)
 - [x] 6.2 JWT bearer (validazione firma/issuer/audience/lifetime) + `AdminContextMiddleware` (tenant dal claim `tenant_id`)
 - [x] 6.3 `GET /api/v1/admin/bookings` (filtri: dateFrom/dateTo, staff, servizio, stato)
 - [x] 6.4 `PATCH /api/v1/admin/bookings/{id}` (aggiorna stato: no_show/completed/cancelled, + audit)
@@ -246,6 +254,36 @@ email multi-servizio, reschedule admin. Poi 8.7 (branding). **NON** è prevista 
 - [x] **S4 Rotazione/revoca API key**: `GET/POST/DELETE /admin/api-keys`; revoca rimuove subito la voce di cache.
 - [x] **S5 Guard JWT secret in produzione**: avvio fallisce in Production se il secret è il placeholder `change-me`.
 
+---
+
+## V2.3 — Onboarding credenziali Owner
+
+> Completato 2026-06-16. Decisioni: vedi tabella §Decisioni Architetturali (D-V2.3-1..D-V2.3-5).
+
+- [x] **Login per email globale** (breaking change): `POST /admin/auth/token` accetta `{ email, password }` —
+  rimosso `tenantSlug`. L'email è univoca a livello globale (un'email = un account = un'attività).
+  Migration `MakeEmailGlobalAndAddSecurityFields`.
+- [x] **Attivazione Owner via link**: provisioning crea Owner **senza password** (`PasswordHash` null), genera
+  token di attivazione (hash in DB, 72h, config `Account:ActivationTokenHours`), accoda email con link.
+  CLI non stampa più password. Migration `AddUserSecurityTokens`.
+- [x] **Endpoint attivazione**: `GET /admin/account/activate?token=` (pagina HTML) +
+  `POST /admin/account/activate` `{ token, newPassword }` → 204; 422 se token non valido/scaduto.
+- [x] **Cambio password autenticato**: `POST /admin/account/password` (JWT) `{ currentPassword, newPassword }` → 204.
+- [x] **Reset password**: `POST /admin/account/password/reset-request` `{ email }` → 202 (neutro);
+  `GET /admin/account/password/reset?token=` (pagina HTML); `POST /admin/account/password/reset`
+  `{ token, newPassword }` → 204. Config `Account:ResetTokenHours` (default 1h).
+- [x] **Pagine HTML set-password servite dall'API** (deroga AD-09 circoscritta): solo pagine tecniche
+  raggiungibili dai link email, non una dashboard admin. Documentato come D-V2.3-3.
+- [x] **SecurityStamp + invalidazione JWT**: claim `security_stamp` nel JWT; al cambio/reset/attivazione
+  lo stamp si rigenera; validazione cache-first nel middleware JWT. I vecchi token diventano invalidi.
+- [x] **Policy password**: min 12 caratteri (`Account:PasswordMinLength`, default 12).
+- [x] **Rate limit `AccountSecurity`**: policy per IP su rotte account+login (10/min,
+  `RateLimiting:AccountPerMinute` / `RATE_LIMIT_ACCOUNT_PER_MINUTE`).
+- [x] **Config `PUBLIC_BASE_URL`**: URL base assoluta dell'API per i link email (env, default `http://localhost:5022`).
+- [x] **Fix JWT**: `MapInboundClaims=false` (claim `sub`/`security_stamp`/`tenant_id` non rinominati) +
+  `KeyId` stabile sulla chiave HS256. ⚠ Eseguire smoke test login admin al prossimo deploy.
+- [x] **Test**: 6 nuovi test del flusso account. Suite totale: **127 test verdi** (96 unit + 31 integration).
+
 > **Stato: pianificazione differita.** Non si parte finché V2 (email) e deploy non sono stabili.
 > NON è una Admin UI per i tenant (quella non esiste, vedi AD-09). È uno strumento **interno** per noi dev,
 > a sola lettura, per osservare il sistema cross-tenant. Da definire meglio prima di stimare/implementare.
@@ -278,6 +316,11 @@ email multi-servizio, reschedule admin. Poi 8.7 (branding). **NON** è prevista 
 | AD-09 | **Nessuna Admin UI**; prodotto API-only per integrazione di siti esterni | La gestione tenant avviene via Admin API + CLI. L'unica UI prevista è una dashboard interna dev (Sez. 10), rimandata | 2026-06-14 |
 | AD-10 | Email per ambiente: **Mailpit (dev) + Brevo (prod)** via `Email:Provider` | Mailpit elimina la verifica mittente in sviluppo (cattura, non consegna); Brevo per la consegna reale in prod. Swap via DI, `IEmailService` invariato | 2026-06-14 |
 | AD-11 | Template email **HTML inline nel codice** (no template gestiti da Brevo) | Unico approccio con parità dev/prod: i template Brevo non sarebbero renderizzabili da Mailpit. Versionati nel repo, testabili | 2026-06-14 |
+| D-V2.3-1 | **Login per email globale** (no `tenantSlug`) | L'email è univoca globalmente (un Owner = un'attività); eliminare lo slug semplifica il flusso di login costruito dal sito del cliente | 2026-06-16 |
+| D-V2.3-2 | **Owner senza password al provisioning** + attivazione via link email | Sicurezza: la password non transita mai in chiaro tra agenzia e cliente; il link scade in 72h | 2026-06-16 |
+| D-V2.3-3 | **Pagine HTML set-password servite dall'API** (deroga circoscritta ad AD-09) | Necessario per ospitare l'atterraggio dei link email senza richiedere un frontend esterno; scope limitato a pagine tecniche (no dashboard) | 2026-06-16 |
+| D-V2.3-4 | **Scope completo V2.3**: attivazione + cambio password + reset + SecurityStamp + policy | Implementare solo S-PW1 avrebbe lasciato il reset fuori; il SecurityStamp invalida token rubati dopo cambio credenziali | 2026-06-16 |
+| D-V2.3-5 | **Modello A**: login e pannello costruiti dal sito del cliente, non dall'API | Coerente con AD-09 (API-only); l'agenzia integra il login sul sito del cliente che chiama `POST /admin/auth/token` e gestisce il JWT | 2026-06-16 |
 
 ---
 
@@ -325,5 +368,6 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-15 | Hardening V2.2 | **Performance P1-P4 + Sicurezza S1-S5 completati**: batch disponibilità/booking "qualsiasi" (P1/P2), reminder finestra+indice (P3), paginazione admin bookings (P4); rate-limit creazione per chiave (S1), retention/erasure GDPR (S2), lockout login admin (S3), rotazione/revoca API key (S4), guard JWT prod (S5). 2 migration (AddReminderScanIndex, AddUserLockout). Build 0 warning, **120 test verdi** (95 unit + 25 integration). DbContext pooling escluso (R-24). |
 | 2026-06-15 | Salone reale | **V2.1 Tier 1+2 completati**: assenze operatore StaffTimeOff (T1.1), "qualsiasi operatore" con disponibilità aggregata + auto-assegnazione (T1.2), appuntamento multi-servizio un operatore BookingItem (T1.3), cancellazione admin notifica cliente (T2.1), reschedule cliente via token (T2.2), reminder pre-appuntamento configurabile (T2.3). 3 migration (StaffTimeOff, BookingItems, ReminderFields). Build 0 warning, **119 test verdi** (95 unit + 24 integration). Follow-up: disponibilità combinata combo, template email multi-servizio, reschedule admin. |
 | 2026-06-15 | Hardening | **PH-1..PH-5 completati**: CORS per-tenant dinamico dai siteUrl (catalogo + refresh job); advisory lock bloccante con lock_timeout anti-409-spurio su parallelSlots>1 (R-17); email outbox transazionale con dispatcher/retry, refactor trasporto IEmailSender + migration AddEmailOutbox (R-25); user-secrets dev (R-16); confronti DST-corretti via TenantTime.ToInstant (R-32); pooling (R-24) non implementato di proposito con motivazione. Build 0 warning, **103 test verdi** (87 unit + 16 integration). |
+| 2026-06-16 | Feature | **V2.3 — Onboarding credenziali Owner**: login per email globale [breaking, rimosso tenantSlug], attivazione Owner via link email (provisioning senza password), cambio password autenticato, reset password con token e risposta neutra, SecurityStamp+invalidazione JWT al cambio/reset, pagine HTML set-password servite dall'API (deroga AD-09 circoscritta), rate-limit AccountSecurity per IP (10/min), policy password min 12 char, config PUBLIC_BASE_URL, 2 migration nuove (MakeEmailGlobalAndAddSecurityFields, AddUserSecurityTokens), fix JWT MapInboundClaims=false+KeyId stabile (⚠ smoke test login admin al deploy). Build 0 warning, **127 test verdi** (96 unit + 31 integration, +6 account). |
 | 2026-06-14 | Direzione | Confermato prodotto **API-only senza Admin UI** (AD-09). Aggiunta **Sezione 10** (dashboard interna dev per observability cross-tenant), rimandata. Avvio V2 email Brevo. |
 | 2026-06-13 | Test | 9.8: logica estratta in `IExpiredBookingCleaner` (scoped, testabile in isolation). `CleanupJobTests`: prenotazione ieri → NoShow, prenotazione futura → invariata. `InternalsVisibleTo` per IntegrationTests. Fix `EnsureLaterSeedAsync` con `IgnoreQueryFilters()`. Suite: **61 test verdi** (48 unit + 13 integration). |

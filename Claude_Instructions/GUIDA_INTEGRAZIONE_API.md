@@ -9,7 +9,7 @@ rivolto agli sviluppatori che collegano i siti dei clienti; allineato al codice 
 > **Non esiste una Admin UI** (AD-09): la gestione avviene via Admin API + CLI di provisioning.
 > Questa guida copre: API esposte, onboarding di un nuovo sito, uso della CLI.
 
-Ultimo allineamento al codice: **2026-06-15** (include hardening PH-1..PH-5).
+Ultimo allineamento al codice: **2026-06-16** (include hardening PH-1..PH-5 + V2.3 onboarding Owner).
 
 ---
 
@@ -72,6 +72,8 @@ quel tenant (isolamento via global query filter su `tenant_id`): un sito non pu�
 - **Per IP**: 300/minuto, applicato a monte dell'auth (anti brute-force), configurabile (`RATE_LIMIT_IP_PER_MINUTE`).
 - **Creazione prenotazioni** (`POST /bookings`): limite dedicato più basso per API key (default 10/min,
   `RATE_LIMIT_BOOKING_PER_MINUTE`) — anti-spam con chiave pubblica esposta (S1).
+- **Account + login** (`/admin/auth/token`, `/admin/account/*`): limite per IP (default 10/min,
+  `RATE_LIMIT_ACCOUNT_PER_MINUTE`) — policy `AccountSecurity` (V2.3).
 
 ### Correlazione e supporto
 Ogni response include l'header **`X-Trace-Id`**: comunicalo nelle segnalazioni, è la chiave per correlare i log.
@@ -190,14 +192,15 @@ Disdetta del cliente via `id` + `token`. `403` se oltre il preavviso minimo (`mi
 ### 2.3 Admin (auth: `Authorization: Bearer <JWT>`)
 
 #### `POST /api/v1/admin/auth/token` — Login admin (anonimo)
-Il tenant è identificato dallo **slug** (l'email è unica solo all'interno del tenant).
+L'email è **univoca a livello globale**: il tenant si ricava dall'account, non dallo slug (⚠ breaking change da V2.3 — rimosso `tenantSlug`).
 ```json
 // Richiesta
-{ "tenantSlug": "barbershop-mario", "email": "owner@barbershop.it", "password": "…" }
+{ "email": "owner@barbershop.it", "password": "…" }
 // 200
 { "token": "<JWT>", "tokenType": "Bearer", "expiresAt": "2026-06-14T20:00:00Z" }
 ```
-Il JWT (validità default 8h) porta `user_id`, `tenant_id`, `role`. Usalo come header su tutte le rotte admin.
+Il JWT (validità default 8h) porta `user_id`, `tenant_id`, `role`, `security_stamp`. Usalo come header su tutte le rotte admin.
+> ⚠ **SecurityStamp:** al cambio/reset/attivazione password lo stamp si rigenera; i token emessi prima diventano invalidi (l'utente deve rifare il login). Gestire il 401 nel frontend redirigendo al login.
 
 #### Prenotazioni
 | Metodo | Path | Azione |
@@ -248,6 +251,61 @@ Il JWT (validità default 8h) porta `user_id`, `tenant_id`, `role`. Usalo come h
 | `DELETE` | `/api/v1/admin/api-keys/{id}` | Revoca (disattiva) → `204` (effetto immediato, rimossa dalla cache) |
 > Rotazione consigliata se una chiave è compromessa: genera la nuova, aggiorna il frontend, poi revoca la vecchia.
 
+#### Account Owner — gestione credenziali (V2.3, Modello A)
+
+> **Modello A:** l'agenzia costruisce il form di login e il pannello di gestione sul **sito del cliente**, che
+> chiama le nostre API per ottenere il JWT. L'API **non** espone una dashboard — ospita solo le pagine
+> di impostazione password raggiunte tramite i link email (deroga circoscritta ad AD-09).
+
+**Flusso di attivazione (primo accesso):**
+1. Il provisioning crea l'Owner **senza password** e accoda un'email con il link di attivazione.
+2. Il link punta a `GET /api/v1/admin/account/activate?token=<token>` — pagina HTML servita dall'API.
+3. L'Owner imposta la password: `POST /api/v1/admin/account/activate` `{ token, newPassword }` → `204`.
+4. Da quel momento può fare login con `POST /api/v1/admin/auth/token` `{ email, password }`.
+
+**Flusso normale (sito del cliente → API):**
+```
+// Il sito costruisce il form di login e chiama:
+POST /api/v1/admin/auth/token  { "email": "owner@barbershop.it", "password": "…" }
+// → { "token": "…", "tokenType": "Bearer", "expiresAt": "…" }
+// Il sito conserva il JWT (sessionStorage / cookie httpOnly) e lo invia come:
+Authorization: Bearer <JWT>
+```
+
+**Cambio password autenticato:**
+```
+POST /api/v1/admin/account/password
+Authorization: Bearer <JWT>
+{ "currentPassword": "…", "newPassword": "…" }   → 204
+```
+> Dopo il cambio, il `security_stamp` si rigenera: il JWT corrente diventa invalido. Il frontend deve
+> gestire il 401 successivo redirigendo al login (il vecchio token non è più accettato).
+
+**Reset password "dimenticata":**
+```
+// Passo 1 — richiesta reset (risposta SEMPRE 202, non rivela se l'email esiste):
+POST /api/v1/admin/account/password/reset-request  { "email": "owner@barbershop.it" }   → 202
+
+// Il link email punta a:
+GET /api/v1/admin/account/password/reset?token=<token>   → pagina HTML servita dall'API
+
+// Passo 2 — imposta nuova password:
+POST /api/v1/admin/account/password/reset  { "token": "…", "newPassword": "…" }   → 204
+// Token non valido o scaduto → 422
+```
+
+| Metodo | Path | Auth | Azione |
+|---|---|---|---|
+| `GET` | `/api/v1/admin/account/activate?token=` | nessuna | Pagina HTML "imposta password" |
+| `POST` | `/api/v1/admin/account/activate` | nessuna | Attiva account + imposta password → `204` |
+| `POST` | `/api/v1/admin/account/password` | JWT | Cambio password autenticato → `204` |
+| `POST` | `/api/v1/admin/account/password/reset-request` | nessuna | Richiesta reset via email → `202` (sempre neutro) |
+| `GET` | `/api/v1/admin/account/password/reset?token=` | nessuna | Pagina HTML reset password |
+| `POST` | `/api/v1/admin/account/password/reset` | nessuna | Reset password con token → `204` |
+
+> **Policy password:** minimo 12 caratteri (configurabile con `Account:PasswordMinLength`).
+> **Rate limit:** tutte queste rotte + il login sono protetti dalla policy `AccountSecurity` (10 req/min per IP).
+
 ---
 
 ## 3. Onboarding di un nuovo sito (tenant)
@@ -259,9 +317,10 @@ Quando un nuovo sito cliente deve collegarsi:
    `parallelSlots`, buffer), staff (orari, servizi erogati).
 2. **Componi il file JSON di provisioning** (vedi `samples/barbershop-demo.json` come modello).
 3. **Esegui la CLI di provisioning** (sezione 4). Restituisce — **una sola volta** —:
-   - la **API key** (`bk_live_…`) del tenant,
-   - le **credenziali admin** (email titolare + password generata).
-   👉 Salvale subito in un gestore di segreti: non sono più recuperabili (in DB c'è solo l'hash).
+   - la **API key** (`bk_live_…`) del tenant.
+   - La CLI **non stampa più una password**: l'Owner riceverà un'email con il link di attivazione
+     per impostare autonomamente la propria password (flusso V2.3).
+   👉 Salva subito la API key in un gestore di segreti: non è più recuperabile (in DB c'è solo l'hash).
 4. **Configura il frontend del cliente** con la API key e la base URL del backend:
    ```
    VITE_BOOKING_API_KEY=bk_live_xxxxxxxx
@@ -306,7 +365,7 @@ dotnet run --project tools/WebAgency_BookingSystem.TenantProvisioning -- \
 1. Valida il JSON (raccoglie **tutti** gli errori con messaggi chiari).
 2. Verifica che lo slug non esista già (altrimenti si ferma: `--update` non supportato).
 3. Inserisce in un **solo `SaveChanges`**: tenant → orari → chiusure → servizi → staff (+ associazioni staff↔servizi e orari staff).
-4. Genera la **API key** (`bk_live_…`, salvata come hash SHA-256) e l'**utente Owner** (password bcrypt).
+4. Genera la **API key** (`bk_live_…`, salvata come hash SHA-256) e l'**utente Owner** senza password (V2.3: la password viene impostata dall'Owner tramite il link di attivazione nell'email).
 5. Registra l'`audit_log` (`tenant_created`).
 6. Stampa i segreti generati — **da mostrare una sola volta**.
 
@@ -348,7 +407,10 @@ dotnet run --project tools/WebAgency_BookingSystem.TenantProvisioning -- \
   `BREVO_SENDER_EMAIL` (mittente **verificato** su Brevo), `BREVO_SENDER_NAME`, eventuali `RATE_LIMIT_*`,
   `Cors__AllowedOrigins__0=…`. La porta è iniettata via `PORT`.
   Ricorda di applicare **tutte le migration** (incl. `AddEmailOutbox`, `AddStaffTimeOff`, `AddBookingItems`,
-  `AddReminderFields`, `AddReminderScanIndex`, `AddUserLockout`) al deploy.
+  `AddReminderFields`, `AddReminderScanIndex`, `AddUserLockout`, `MakeEmailGlobalAndAddSecurityFields`,
+  `AddUserSecurityTokens`) al deploy. Imposta anche `PUBLIC_BASE_URL=https://<servizio>.railway.app` (usata
+  nei link email di attivazione e reset password).
+  ⚠ **Smoke test obbligatorio al deploy V2.3**: verificare il round-trip login admin (fix JWT `MapInboundClaims=false` + `KeyId` stabile).
 - **Sicurezza login admin (S3)**: 5 tentativi falliti consecutivi → blocco temporaneo (15 min) dell'utente.
 - **GDPR retention (S2)**: un job giornaliero **anonimizza** le PII delle prenotazioni oltre `Gdpr:RetentionDays`
   (default 365) e **purga** le email outbox inviate oltre `Gdpr:OutboxRetentionDays` (default 30).

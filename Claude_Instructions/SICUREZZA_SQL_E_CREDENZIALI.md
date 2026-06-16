@@ -45,54 +45,47 @@ L'email dell'utenza Owner **è scelta dall'attività**: viene fornita nel JSON d
 
 **Limite:** la scelta avviene **solo al provisioning** (eseguito dall'agenzia tramite CLI). Non esiste un endpoint self-service per **modificare** l'email in seguito.
 
-### 2.2 Cambio password — NON DISPONIBILE ❌
-La password admin è **generata automaticamente** al provisioning (18 caratteri esadecimali random, mostrata una sola volta) — [TenantProvisioner.cs:68,223-225](../tools/WebAgency_BookingSystem.TenantProvisioning/TenantProvisioner.cs#L68-L74).
+### 2.2 Cambio password — IMPLEMENTATO ✅ (2026-06-16, V2.3)
 
-Non esiste **alcun** endpoint per:
-- cambiare la propria password (l'Owner resta legato alla password generata);
-- reset password / "password dimenticata";
-- modificare la propria email post-provisioning.
+**Stato aggiornato:** la gestione autonoma delle credenziali Owner è stata completamente implementata nel
+task V2.3 "Onboarding credenziali Owner". Di seguito un riepilogo di quanto implementato; per i dettagli
+architetturali e il piano originale vedi `docs/superpowers/plans/2026-06-16-onboarding-owner-credenziali.md`.
 
-Gli unici endpoint admin disponibili sono `auth/token`, bookings, services, staff, business-hours, closures, api-keys — nessuno di gestione account/utente.
+**Cosa è stato implementato:**
 
-> **Conclusione Q2:** parzialmente coperto. **Email scegliibile sì** (al provisioning), **cambio password no**. Segue il piano di intervento (NON ancora eseguito).
+- **Login per email globale:** `POST /admin/auth/token` ora accetta `{ email, password }` (rimosso `tenantSlug`
+  — breaking change). L'email è univoca globalmente (un'email = un account = un'attività).
+- **Attivazione via link:** il provisioning crea l'Owner senza password (`PasswordHash` null), genera un token
+  di attivazione (hash in DB, scadenza configurabile `Account:ActivationTokenHours`, default 72h) e accoda
+  un'email con il link. La CLI non stampa più password.
+- **Cambio password autenticato:** `POST /admin/account/password` (JWT) `{ currentPassword, newPassword }` → 204.
+- **Reset password "dimenticata":** `POST /admin/account/password/reset-request` `{ email }` → sempre 202
+  (neutro); `POST /admin/account/password/reset` `{ token, newPassword }` → 204; token hash in DB con scadenza
+  `Account:ResetTokenHours` (default 1h).
+- **Pagine HTML set-password:** servite direttamente dall'API (deroga circoscritta ad AD-09: solo pagine
+  tecniche raggiunte dai link email, non una dashboard). `GET /admin/account/activate?token=` e
+  `GET /admin/account/password/reset?token=`.
+- **SecurityStamp + invalidazione JWT:** claim `security_stamp` nel JWT; al cambio/reset/attivazione lo stamp
+  si rigenera (validazione cache-first nel middleware JWT) → i vecchi token diventano invalidi.
+- **Policy password:** minimo 12 caratteri (`Account:PasswordMinLength`).
+- **Rate limit `AccountSecurity`:** 10 req/min per IP su tutte le rotte account+login
+  (`RATE_LIMIT_ACCOUNT_PER_MINUTE` / `RateLimiting:AccountPerMinute`).
+- **2 migration nuove:** `MakeEmailGlobalAndAddSecurityFields` (email univoca globale + SecurityStamp),
+  `AddUserSecurityTokens` (token di attivazione e reset).
+- **Fix JWT:** `MapInboundClaims=false` e `KeyId` stabile su chiave HS256 (⚠ eseguire smoke test login admin
+  al deploy).
+- **Test:** 6 nuovi test del flusso account (unit + integration), totale suite 127 test verdi (96 unit + 31 integration).
+
+> **Conclusione Q2 (aggiornata):** **entrambi i punti coperti.** Email scegliibile al provisioning ✅;
+> cambio/reset password ✅ (V2.3, 2026-06-16). Il cambio email self-service (S-PW3 del piano originale)
+> resta non implementato — priorità bassa, da valutare in futuro.
 
 ---
 
-## 3. Piano di intervento — Self-service credenziali Owner (DA APPROVARE, non eseguito)
+## 3. ~~Piano di intervento~~ — (storico, superato da V2.3)
 
-Obiettivo: dare all'Owner il controllo sulle proprie credenziali, mantenendo le regole del progetto (SOLID, `Result<T>`, errori in italiano, JWT admin, `[INTENT]`/`WHY`, OpenAPI completa, test dopo l'implementazione).
-
-### S-PW1 — Cambio password autenticato (priorità ALTA)
-- **Endpoint:** `POST /api/v1/admin/account/password` (JWT richiesto).
-- **DTO:** `record ChangePasswordRequest(string CurrentPassword, string NewPassword)`.
-- **Logica (nuovo `IAdminAccountService`):**
-  1. Risolvi `userId` dal claim JWT.
-  2. Verifica `CurrentPassword` con `BCrypt.Verify` (riuso di `VerifyPassword`).
-  3. Valida `NewPassword` (FluentValidation: min 12 char, non uguale alla corrente).
-  4. `PasswordHash = BCrypt.HashPassword(NewPassword)`, `SaveChanges`, audit log `password_changed`.
-- **Sicurezza:** rate-limit dedicato; in caso di `CurrentPassword` errata, riusare l'errore neutro 401/400; opzionale invalidazione token (vedi S-PW4).
-- **Test:** unit (verifica/validazione) + integration (happy path, password corrente errata, nuova password debole).
-
-### S-PW2 — Reset password "dimenticata" (priorità MEDIA)
-- **Flusso a token via email** (l'infrastruttura outbox/email esiste già — `OutboxEmail` + `EmailOutboxDispatcher`):
-  - `POST /api/v1/admin/account/password/reset-request` `{ tenantSlug, email }` → genera token monouso con scadenza (hash in DB, nuova entità `PasswordResetToken` o campi su `User`), accoda email. **Risposta sempre neutra** (non rivela se l'email esiste).
-  - `POST /api/v1/admin/account/password/reset` `{ token, newPassword }` → valida token non scaduto/non usato, aggiorna hash, invalida token.
-- **Migration:** nuova tabella/colonne per i token di reset.
-- **Test:** scadenza token, riuso token, token inesistente.
-
-### S-PW3 — Cambio email Owner (priorità BASSA/opzionale)
-- **Endpoint:** `PUT /api/v1/admin/account/email` (JWT) `{ newEmail, currentPassword }`.
-- Verifica password corrente; valida unicità `(tenantId, email)`; opzionale doppio opt-in via email di conferma.
-- Aggiornare sia `User.Email` sia, se desiderato, `Tenant.OwnerEmail` (decisione da confermare con l'utente).
-
-### S-PW4 — (Opzionale) Invalidazione sessioni dopo cambio password
-- Aggiungere `User.SecurityStamp` (o `PasswordChangedAt`) e includerlo come claim nel JWT; in fase di validazione rifiutare token con stamp obsoleto. Mitiga il riuso di token rubati dopo un cambio password.
-
-### Note trasversali
-- Tutti i nuovi endpoint: `WithName/WithSummary/WithDescription/WithTags("Admin")/Produces<T>/ProducesProblem` + `RequireAuthorization` come da regola OpenAPI del progetto.
-- Aggiornare `CLAUDE.md` (sommario endpoint admin) e `DEVELOPMENT_PLAN.md` (changelog + checkbox) nello stesso commit dell'implementazione.
-- Considerare che il prodotto è **API-only, senza Admin UI** (AD-09): questi endpoint saranno consumati dal sito/integrazione del cliente o da tooling interno.
-
-### Sequenza consigliata
-`S-PW1` → `S-PW4` → `S-PW2` → `S-PW3`. S-PW1 è il minimo indispensabile per chiudere il gap principale (l'Owner non può cambiare la password auto-generata).
+> Il piano originale (S-PW1..S-PW4) è stato eseguito integralmente nel task V2.3 (2026-06-16), con alcune
+> differenze rispetto alla sequenza pianificata: S-PW1, S-PW2, S-PW4 implementati; S-PW3 (cambio email)
+> non implementato (priorità bassa). È stato aggiunto il flusso di attivazione iniziale (Owner senza password
+> al provisioning) non previsto nel piano originale.
+> Dettagli storici del piano conservati in `docs/superpowers/plans/2026-06-16-onboarding-owner-credenziali.md`.

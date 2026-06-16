@@ -10,7 +10,7 @@
 > Build `dotnet build` verde (0 warning, analyzer + warnings-as-errors). 41 unit test verdi.
 > Tutti gli endpoint validati a runtime con Docker. Nessun bug trovato.
 
-**Fase attuale:** V1 + **V2 email** + **hardening PH-1..PH-5** + **V2.1 salone reale** + **V2.2 hardening perf/sicurezza** (2026-06-15). **120 test verdi** (95 unit + 25 integration).
+**Fase attuale:** V1 + **V2 email** + **hardening PH-1..PH-5** + **V2.1 salone reale** + **V2.2 hardening perf/sicurezza** + **V2.3 onboarding Owner** (2026-06-16). **127 test verdi** (96 unit + 31 integration).
 
 **V2.2 — Hardening (2026-06-15):** Performance — batch query per disponibilità/booking "qualsiasi operatore" (P1/P2), reminder con finestra di scan ristretta + indice (P3), **paginazione** `GET /admin/bookings` (`page`/`pageSize`, `PagedResponse<T>`) (P4). Sicurezza — rate-limit dedicato sulla **creazione** prenotazioni per API key (`RateLimiting:BookingPerMinute`, default 10) (S1); **retention/erasure GDPR** (`DataRetentionJob`: anonimizza PII prenotazioni oltre `Gdpr:RetentionDays`=365, purga outbox inviate oltre `Gdpr:OutboxRetentionDays`=30) (S2); **lockout login admin** (5 tentativi → 15 min, campi `User.FailedAccessCount`/`LockoutEnd`) (S3); **rotazione/revoca API key** via `GET/POST/DELETE /admin/api-keys` (S4); **guard JWT** in produzione (S5). `DbContext` pooling escluso (R-24). 2 migration nuove (`AddReminderScanIndex`, `AddUserLockout`).
 
@@ -18,9 +18,11 @@
 
 **Email (Sezione 8, AD-10/AD-11 + PH-3):** provider per ambiente via `Email:Provider` — **Mailpit in dev** (SMTP locale, cattura, zero verifica mittente; UI `http://localhost:8025`), **Brevo in prod** (REST). Template HTML inline italiani (`EmailTemplateRenderer`). **Invio via OUTBOX transazionale** (PH-3): l'email è accodata (`OutboxEmail`) nella transazione del booking e inviata da `EmailOutboxDispatcher` con retry/backoff; trasporto `IEmailSender` (Mailpit/Brevo/Null) separato dal contenuto. Admin UI **non** prevista (AD-09); unica UI futura = dashboard interna dev (Sezione 10, rimandata).
 
+**V2.3 — Onboarding credenziali Owner (2026-06-16):** Login per email globale (rimosso `tenantSlug` — breaking change); provisioning crea Owner **senza password** e accoda **email di attivazione** con link (token hash in DB, 72h); CLI non stampa più password. Nuovi endpoint `/api/v1/admin/account/*`: attivazione account, cambio password autenticato, reset password via email (risposta neutra), pagine HTML set-password servite dall'API (**deroga AD-09** circoscritta: solo pagine tecniche, non una dashboard). **SecurityStamp** nel JWT: al cambio/reset/attivazione lo stamp si rigenera, i vecchi token vengono invalidati (validazione cache-first). Policy password configurabile (min 12 char). Rate-limit dedicato per IP su rotte account+login (`AccountSecurity`, default 10/min). Config `PUBLIC_BASE_URL` (base dei link email). 2 migration nuove (`MakeEmailGlobalAndAddSecurityFields`, `AddUserSecurityTokens`). Fix JWT: `MapInboundClaims=false` + `KeyId` stabile (⚠ eseguire smoke test login admin al deploy). 6 nuovi test flusso account.
+
 **Hardening produzione (2026-06-15, PH-1..PH-5):** CORS per-tenant dinamico dai `siteUrl` (catalogo + refresh job); advisory lock **bloccante** con `lock_timeout` (no 409 spurio su `parallelSlots>1`); email outbox durevole; user-secrets dev; confronti **DST-corretti** (`TenantTime.ToInstant`). DbContext pooling NON adottato (motivato nel piano).
 
-**Prossimo task:** Railway deploy (impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato; eseguire le migration incl. `AddEmailOutbox`). Poi 8.7 (branding template). Dubbi/decisioni aperte in `Claude_Instructions/DUBBI_SESSIONE.md` (D-01…D-15).
+**Prossimo task:** Railway deploy — applicare le 2 nuove migration V2.3 (`MakeEmailGlobalAndAddSecurityFields`, `AddUserSecurityTokens`) oltre alle precedenti; impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato; impostare `PUBLIC_BASE_URL` (es. `https://<servizio>.railway.app`); eseguire **smoke test login admin** (fix JWT `MapInboundClaims`/`KeyId`). Poi 8.7 (branding template). Dubbi/decisioni aperte in `Claude_Instructions/DUBBI_SESSIONE.md` (D-01…D-15).
 
 **Note runtime (da `Claude_Instructions/DOCKER_SESSION_TODO.md`):**
 - API porta **5022** (launchSettings.json profilo `http`)
@@ -251,6 +253,8 @@ In **produzione** non si usano né appsettings né user-secrets: solo **variabil
 | `BREVO_API_KEY` | API key Brevo (V2) | `xkeysib-...` |
 | `BREVO_SENDER_EMAIL` | From address email (V2) | `noreply@dominio.com` |
 | `BREVO_SENDER_NAME` | From name email (V2) | `BookingSystem` |
+| `PUBLIC_BASE_URL` | URL base assoluta dell'API, usata per costruire i link nelle email (attivazione, reset password) | `http://localhost:5022` |
+| `RATE_LIMIT_ACCOUNT_PER_MINUTE` | Richieste max/min per IP sulle rotte account+login (default: 10) | `10` |
 
 ## Endpoint API — Sommario
 
@@ -268,13 +272,22 @@ DELETE /api/v1/bookings/{id}?token=...
 
 ### Admin (autenticazione: JWT Bearer)
 ```
-POST   /api/v1/admin/auth/token
+POST   /api/v1/admin/auth/token             body: { email, password }  ← login per email globale (no tenantSlug)
 GET    /api/v1/admin/bookings
 PATCH  /api/v1/admin/bookings/{id}
 GET|POST|PUT|DELETE  /api/v1/admin/services
 GET|POST|PUT|DELETE  /api/v1/admin/staff
 PUT    /api/v1/admin/business-hours
 PUT    /api/v1/admin/closures
+GET|POST|DELETE      /api/v1/admin/api-keys
+
+# Gestione account Owner (V2.3)
+GET    /api/v1/admin/account/activate?token=      → pagina HTML "imposta password"
+POST   /api/v1/admin/account/activate             body: { token, newPassword }  → 204
+POST   /api/v1/admin/account/password             body: { currentPassword, newPassword }  → 204  (JWT)
+POST   /api/v1/admin/account/password/reset-request  body: { email }  → 202 (sempre, risposta neutra)
+GET    /api/v1/admin/account/password/reset?token=   → pagina HTML reset password
+POST   /api/v1/admin/account/password/reset       body: { token, newPassword }  → 204
 ```
 
 ## Riferimenti
