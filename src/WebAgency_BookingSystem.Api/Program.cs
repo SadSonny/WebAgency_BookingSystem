@@ -9,6 +9,7 @@ using System.Threading.RateLimiting;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -24,6 +25,7 @@ using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Infrastructure;
 using WebAgency_BookingSystem.Infrastructure.Auth;
 using WebAgency_BookingSystem.Infrastructure.Cors;
+using WebAgency_BookingSystem.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -292,6 +294,22 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+// ── Migrazioni automatiche all'avvio (opt-in) ─────────────────────────────────
+// WHY: comodo in sviluppo e nei deploy a SINGOLA istanza per non lanciare a mano `dotnet ef database update`.
+// Disattivato di default (prod-safe): con più istanze in parallelo due avvii concorrenti potrebbero competere
+// sulla stessa migrazione, e applicare schema senza revisione è rischioso. In quei casi preferire uno step di
+// migrazione dedicato nella pipeline di deploy. Attivare con DB_AUTO_MIGRATE=true (env) o Database:AutoMigrate.
+bool autoMigrate = builder.Configuration.GetValue<bool?>("DB_AUTO_MIGRATE")
+    ?? builder.Configuration.GetValue<bool?>("Database:AutoMigrate")
+    ?? false;
+if (autoMigrate)
+{
+    using IServiceScope migrationScope = app.Services.CreateScope();
+    BookingSystemDbContext db = migrationScope.ServiceProvider.GetRequiredService<BookingSystemDbContext>();
+    db.Database.Migrate();
+    Log.Information("Migrazioni del database applicate all'avvio (DB_AUTO_MIGRATE attivo).");
+}
 
 // ── Pipeline middleware (ordine significativo) ────────────────────────────────
 // 0. Forwarded headers: per primo, così tutto il resto vede IP/scheme reali del client (dietro proxy).

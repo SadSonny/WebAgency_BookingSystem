@@ -255,6 +255,7 @@ In **produzione** non si usano né appsettings né user-secrets: solo **variabil
 | `BREVO_SENDER_NAME` | From name email (V2) | `BookingSystem` |
 | `PUBLIC_BASE_URL` | URL base assoluta dell'API, usata per costruire i link nelle email (attivazione, reset password) | `http://localhost:5022` |
 | `RATE_LIMIT_ACCOUNT_PER_MINUTE` | Richieste max/min per IP sulle rotte account+login (default: 10) | `10` |
+| `DB_AUTO_MIGRATE` | Applica le migration EF all'avvio dell'API (opt-in; default `false`). In Development è già `true` via `appsettings.Development.json`. In produzione lasciare `false` se più istanze girano in parallelo (preferire uno step di migrazione nella pipeline) | `true` |
 
 ## Endpoint API — Sommario
 
