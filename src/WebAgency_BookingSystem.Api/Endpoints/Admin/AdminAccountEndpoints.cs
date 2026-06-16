@@ -43,7 +43,6 @@ internal static class AdminAccountEndpoints
             .WithSummary("Attiva account (imposta prima password)")
             .WithDescription("Imposta la prima password dall'invito di attivazione. Token monouso a scadenza.")
             .Produces(StatusCodes.Status204NoContent)
-            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
             .Produces<ErrorResponse>(StatusCodes.Status422UnprocessableEntity)
             .RequireRateLimiting(RateLimitingPolicies.AccountSecurity);
 
@@ -90,7 +89,7 @@ internal static class AdminAccountEndpoints
             .WithName("AdminAccountReset")
             .WithSummary("Reimposta password (da token)")
             .Produces(StatusCodes.Status204NoContent)
-            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorResponse>(StatusCodes.Status422UnprocessableEntity)
             .RequireRateLimiting(RateLimitingPolicies.AccountSecurity);
 
         group.MapPost("/password", async (
@@ -116,7 +115,7 @@ internal static class AdminAccountEndpoints
             .WithSummary("Cambia password (Owner autenticato)")
             .WithDescription("Cambia la password verificando quella corrente. Invalida i token JWT emessi prima del cambio.")
             .Produces(StatusCodes.Status204NoContent)
-            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorResponse>(StatusCodes.Status422UnprocessableEntity)
             .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
             .RequireAuthorization()
             .RequireRateLimiting(RateLimitingPolicies.AccountSecurity);
