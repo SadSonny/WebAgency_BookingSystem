@@ -17,6 +17,11 @@ internal sealed class AdminAuthService : IAdminAuthService
     private const int MaxFailedAttempts = 5;
     private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
 
+    // WHY: equalizza il tempo di risposta del login. Se l'utente non esiste / non è attivato, verifichiamo la
+    // password contro questo hash "fittizio" (stesso work factor di quelli reali) per non far trapelare via timing
+    // l'esistenza/attivazione di un'email (oracle di enumerazione). L'hash è generato una sola volta all'avvio.
+    private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword("timing-equalizer-placeholder");
+
     private readonly ITenantRepository _tenants;
     private readonly IUserRepository _users;
     private readonly IJwtTokenGenerator _jwt;
@@ -41,6 +46,9 @@ internal sealed class AdminAuthService : IAdminAuthService
         User? user = await _users.GetByEmailAsync(request.Email, ct);
         if (user is not { Active: true } || user.PasswordHash is null)
         {
+            // WHY: bruciamo lo stesso tempo di una verifica reale per non rivelare via timing che l'email non
+            // esiste o non è attivata (vedi DummyPasswordHash).
+            _ = VerifyPassword(request.Password, DummyPasswordHash);
             _logger.LogWarning("Login admin fallito (utente inesistente/non attivo/non attivato)");
             return invalid;
         }

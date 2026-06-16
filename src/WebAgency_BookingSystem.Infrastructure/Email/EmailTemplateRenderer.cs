@@ -94,8 +94,8 @@ internal sealed class EmailTemplateRenderer : IEmailTemplateRenderer
     {
         string business = string.IsNullOrWhiteSpace(businessName) ? "BookingSystem" : businessName;
         string subject = $"{heading} — {business}";
-        string body = $"<tr><td style=\"padding:6px 12px;color:#111;font-size:14px;\">{Encode(message)}</td></tr>";
-        string html = Layout(business, heading, Encode(message), body, FooterHtml());
+        // Il messaggio appare una sola volta, come paragrafo introduttivo; nessuna riga di dettaglio aggiuntiva.
+        string html = Layout(business, heading, Encode(message), string.Empty, FooterHtml());
         string text = $"{heading}\n\n{message}";
         return new EmailMessage(toEmail, business, subject, html, text);
     }
