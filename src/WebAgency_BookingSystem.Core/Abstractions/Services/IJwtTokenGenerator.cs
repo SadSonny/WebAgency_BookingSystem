@@ -14,5 +14,5 @@ public interface IJwtTokenGenerator
     /// <summary>
     /// Genera un JWT con i claim dell'utente admin e restituisce il token e il suo istante di scadenza (UTC).
     /// </summary>
-    (string Token, DateTimeOffset ExpiresAt) Generate(Guid userId, Guid tenantId, UserRole role);
+    (string Token, DateTimeOffset ExpiresAt) Generate(Guid userId, Guid tenantId, UserRole role, Guid securityStamp);
 }

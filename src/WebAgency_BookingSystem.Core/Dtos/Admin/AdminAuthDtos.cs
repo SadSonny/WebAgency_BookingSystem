@@ -1,13 +1,13 @@
-// [INTENT]: DTO dell'autenticazione admin (step 2.8 parziale per 6.1). Il login identifica il tenant tramite
-// lo slug (l'email è unica solo all'interno del tenant), poi verifica email+password e rilascia un JWT.
+// [INTENT]: DTO dell'autenticazione admin. Il login avviene per sola email globale (un'email = un account = un
+// tenant): si verifica email+password e si rilascia un JWT. Il tenant è derivato dall'utente, non passato dal client.
 
 namespace WebAgency_BookingSystem.Core.Dtos.Admin;
 
 /// <summary>
-/// Richiesta di login admin. Lo <paramref name="TenantSlug"/> identifica l'attività; email e password sono
-/// le credenziali dell'utente admin di quel tenant.
+/// Richiesta di login admin. L'email è univoca a livello globale e identifica l'account (e quindi il tenant);
+/// la password è la credenziale dell'utente admin.
 /// </summary>
-public sealed record AdminLoginRequest(string TenantSlug, string Email, string Password);
+public sealed record AdminLoginRequest(string Email, string Password);
 
 /// <summary>
 /// Risposta al login: token JWT da usare come <c>Authorization: Bearer</c> sugli endpoint admin.

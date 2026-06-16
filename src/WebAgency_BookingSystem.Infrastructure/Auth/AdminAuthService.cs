@@ -1,6 +1,6 @@
-// [INTENT]: Autenticazione admin (step 6.1). Risolve il tenant per slug, l'utente per (tenant, email),
-// verifica la password bcrypt e rilascia un JWT. In ogni caso di fallimento restituisce lo STESSO errore
-// neutro (401) per non rivelare quale parte delle credenziali è errata.
+// [INTENT]: Autenticazione admin. Risolve l'utente per email GLOBALE (un'email = un account), poi il tenant
+// dall'utente, verifica la password bcrypt e rilascia un JWT (con la SecurityStamp). In ogni caso di fallimento
+// restituisce lo STESSO errore neutro (401) per non rivelare quale parte delle credenziali è errata.
 
 using Microsoft.Extensions.Logging;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
@@ -38,45 +38,43 @@ internal sealed class AdminAuthService : IAdminAuthService
     {
         Error invalid = Error.Unauthorized("unauthorized", "Credenziali non valide.");
 
-        Tenant? tenant = await _tenants.GetBySlugAsync(request.TenantSlug, ct);
-        if (tenant is not { Active: true })
+        User? user = await _users.GetByEmailAsync(request.Email, ct);
+        if (user is not { Active: true } || user.PasswordHash is null)
         {
-            _logger.LogWarning("Login admin fallito: tenant '{Slug}' inesistente o disattivato", request.TenantSlug);
+            _logger.LogWarning("Login admin fallito (utente inesistente/non attivo/non attivato)");
             return invalid;
         }
 
-        User? user = await _users.GetByTenantAndEmailAsync(tenant.Id, request.Email, ct);
-        if (user is not { Active: true })
+        Tenant? tenant = await _tenants.GetByIdAsync(user.TenantId, ct);
+        if (tenant is not { Active: true })
         {
-            _logger.LogWarning("Login admin fallito per tenant {TenantId} (utente inesistente/disattivato)", tenant.Id);
+            _logger.LogWarning("Login admin fallito: tenant {TenantId} inesistente o disattivato", user.TenantId);
             return invalid;
         }
 
         // S3: account bloccato → respingiamo SENZA verificare la password (e senza rivelare il blocco al client).
         if (user.LockoutEnd is DateTimeOffset until && until > DateTimeOffset.UtcNow)
         {
-            _logger.LogWarning("Login admin bloccato (lockout attivo) per utente {UserId} tenant {TenantId}", user.Id, tenant.Id);
+            _logger.LogWarning("Login admin bloccato (lockout attivo) per utente {UserId}", user.Id);
             return invalid;
         }
 
-        // WHY: PasswordHash è nullable (account non ancora attivato). Se null, nessuna password è valida:
-        // trattiamo come credenziale errata senza rivelare lo stato dell'account al client.
-        if (user.PasswordHash is null || !VerifyPassword(request.Password, user.PasswordHash))
+        if (!VerifyPassword(request.Password, user.PasswordHash))
         {
             await _users.RegisterFailedAttemptAsync(user.Id, MaxFailedAttempts, LockoutDuration, ct);
-            _logger.LogWarning("Login admin fallito (password errata) per utente {UserId} tenant {TenantId}", user.Id, tenant.Id);
+            _logger.LogWarning("Login admin fallito (password errata) per utente {UserId}", user.Id);
             return invalid;
         }
 
         await _users.RegisterSuccessfulLoginAsync(user.Id, ct);
-        (string token, DateTimeOffset expiresAt) = _jwt.Generate(user.Id, tenant.Id, user.Role);
+        (string token, DateTimeOffset expiresAt) = _jwt.Generate(user.Id, tenant.Id, user.Role, user.SecurityStamp);
         _logger.LogInformation("Login admin riuscito: utente {UserId} tenant {TenantId}", user.Id, tenant.Id);
 
         return Result.Success(new AdminTokenResponse(token, "Bearer", expiresAt.ToString("o")));
     }
 
     // WHY: un hash malformato in DB farebbe lanciare la verifica bcrypt; lo trattiamo come credenziale non
-    // valida (mai un 500), senza rivelare nulla al chiamante.
+    // valida (mai un 500), senza rivelare nulla al chiamante. La non-nullità di passwordHash è garantita dal caller.
     private static bool VerifyPassword(string password, string passwordHash)
     {
         try

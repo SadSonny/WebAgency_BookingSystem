@@ -17,7 +17,7 @@ internal sealed class JwtTokenGenerator : IJwtTokenGenerator
 
     public JwtTokenGenerator(IConfiguration configuration) => _settings = JwtSettings.FromConfiguration(configuration);
 
-    public (string Token, DateTimeOffset ExpiresAt) Generate(Guid userId, Guid tenantId, UserRole role)
+    public (string Token, DateTimeOffset ExpiresAt) Generate(Guid userId, Guid tenantId, UserRole role, Guid securityStamp)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
         DateTimeOffset expiresAt = now.AddHours(_settings.ExpiryHours);
@@ -29,6 +29,7 @@ internal sealed class JwtTokenGenerator : IJwtTokenGenerator
             [
                 new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
                 new Claim(AdminClaims.TenantId, tenantId.ToString()),
+                new Claim(AdminClaims.SecurityStamp, securityStamp.ToString()),
                 new Claim(ClaimTypes.Role, role.ToString()),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             ]),

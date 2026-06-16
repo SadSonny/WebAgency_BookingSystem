@@ -13,7 +13,6 @@ public sealed class AdminLoginRequestValidator : AbstractValidator<AdminLoginReq
 {
     public AdminLoginRequestValidator()
     {
-        RuleFor(x => x.TenantSlug).NotEmpty().WithMessage("Lo slug del tenant è obbligatorio.");
         RuleFor(x => x.Email)
             .NotEmpty().WithMessage("L'email è obbligatoria.")
             .EmailAddress().WithMessage("Formato email non valido.");
