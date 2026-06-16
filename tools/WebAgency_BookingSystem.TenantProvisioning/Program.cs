@@ -1,7 +1,8 @@
 // [INTENT]: Entry point della CLI di provisioning tenant. Legge e valida un file JSON, costruisce il layer
-// Infrastructure (DbContext + interceptor), esegue il provisioning in transazione e stampa l'output con i
-// segreti generati (API key e password admin) da mostrare UNA SOLA VOLTA. Codici di uscita: 0 successo,
-// 1 errore di runtime (DB/provisioning), 2 errore di input (argomenti/file/validazione).
+// Infrastructure (DbContext + interceptor + outbox), esegue il provisioning in transazione e stampa l'output
+// con i segreti generati (API key) da mostrare UNA SOLA VOLTA. L'Owner riceve un link di attivazione via email
+// (accodato nell'outbox) e imposta la password autonomamente — nessuna password viene generata qui.
+// Codici di uscita: 0 successo, 1 errore di runtime (DB/provisioning), 2 errore di input (argomenti/file/validazione).
 
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
@@ -85,7 +86,9 @@ static async Task<int> Run(string[] args)
         Console.WriteLine();
         Console.WriteLine("✓ Validazione input completata");
 
-        var provisioner = new TenantProvisioner(db);
+        var outbox = scope.ServiceProvider.GetRequiredService<WebAgency_BookingSystem.Infrastructure.Email.IEmailOutbox>();
+        var accountSettings = scope.ServiceProvider.GetRequiredService<WebAgency_BookingSystem.Infrastructure.Auth.AccountSettings>();
+        var provisioner = new TenantProvisioner(db, outbox, accountSettings);
         ProvisioningResult result = await provisioner.CreateAsync(input, CancellationToken.None);
 
         PrintResult(result);
@@ -109,6 +112,7 @@ static IHost BuildHost(string connection)
     builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
     {
         ["ConnectionStrings:Database"] = connection,
+        ["Account:PublicBaseUrl"] = Environment.GetEnvironmentVariable("PUBLIC_BASE_URL") ?? "http://localhost:5022",
     });
     builder.Services.AddInfrastructure(builder.Configuration);
     return builder.Build();
@@ -154,9 +158,10 @@ static void PrintResult(ProvisioningResult result)
     Console.WriteLine($"Chiave:   {result.ApiKey}");
     Console.WriteLine($"Prefisso: {result.KeyPrefix}");
     Console.WriteLine();
-    Console.WriteLine("=== CREDENZIALI ADMIN (mostrare UNA SOLA VOLTA) ===");
+    Console.WriteLine("=== ACCOUNT ADMIN (Owner) ===");
     Console.WriteLine($"Email:    {result.AdminEmail}");
-    Console.WriteLine($"Password: {result.AdminPassword}");
+    Console.WriteLine("Attivazione: email con link inviata all'Owner (coda outbox).");
+    Console.WriteLine("L'Owner imposta la password dal link; nessuna password viene generata qui.");
     Console.WriteLine();
     Console.WriteLine("Da inserire nel frontend:");
     Console.WriteLine($"  VITE_BOOKING_API_KEY={result.ApiKey}");

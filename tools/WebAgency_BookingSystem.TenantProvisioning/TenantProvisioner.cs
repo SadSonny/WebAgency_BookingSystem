@@ -1,7 +1,8 @@
 // [INTENT]: Esegue il provisioning di un tenant (step 7.3-7.6) in un'unica transazione (un solo SaveChanges):
 // crea tenant, orari, chiusure, servizi, staff e relative associazioni, genera l'API key (formato bk_live_,
-// salvata come hash SHA-256), crea l'utente admin Owner con password bcrypt, e registra l'audit log. Restituisce
-// i segreti generati (API key e password) da mostrare UNA SOLA VOLTA. Solo modalità CREATE (no --update in V1).
+// salvata come hash SHA-256), crea l'utente Owner SENZA password (account non ancora attivato), genera un
+// token di attivazione (hash in DB) ed accoda l'email di attivazione tramite IEmailOutbox — tutto nella stessa
+// transazione. L'Owner imposta la password al primo accesso tramite il link. Solo modalità CREATE (no --update in V1).
 
 using System.Globalization;
 using System.Security.Cryptography;
@@ -9,6 +10,8 @@ using Microsoft.EntityFrameworkCore;
 using WebAgency_BookingSystem.Core.Entities;
 using WebAgency_BookingSystem.Core.Enums;
 using WebAgency_BookingSystem.Core.Security;
+using WebAgency_BookingSystem.Infrastructure.Auth;
+using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
 
 namespace WebAgency_BookingSystem.TenantProvisioning;
@@ -16,8 +19,15 @@ namespace WebAgency_BookingSystem.TenantProvisioning;
 internal sealed class TenantProvisioner
 {
     private readonly BookingSystemDbContext _db;
+    private readonly IEmailOutbox _outbox;
+    private readonly AccountSettings _account;
 
-    public TenantProvisioner(BookingSystemDbContext db) => _db = db;
+    public TenantProvisioner(BookingSystemDbContext db, IEmailOutbox outbox, AccountSettings account)
+    {
+        _db = db;
+        _outbox = outbox;
+        _account = account;
+    }
 
     public async Task<ProvisioningResult> CreateAsync(ProvisioningInput input, CancellationToken ct)
     {
@@ -65,17 +75,35 @@ internal sealed class TenantProvisioner
             CreatedAt = nowUtc,
         });
 
-        string adminPassword = GeneratePassword();
-        _db.Users.Add(new User
+        var ownerUser = new User
         {
             Id = Guid.NewGuid(),
             TenantId = tenant.Id,
             Email = input.OwnerEmail!,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword),
+            PasswordHash = null,        // account non ancora attivato
+            ActivatedAt = null,
+            SecurityStamp = Guid.NewGuid(),
             Role = UserRole.Owner,
             Active = true,
             // CreatedAt/UpdatedAt valorizzati dal TimestampInterceptor.
+        };
+        _db.Users.Add(ownerUser);
+
+        // Token di attivazione (hash in DB) + email con il link. Tutto nella stessa transazione del tenant.
+        GeneratedSecurityToken activation = SecurityTokenGenerator.Generate();
+        _db.UserSecurityTokens.Add(new UserSecurityToken
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenant.Id,
+            UserId = ownerUser.Id,
+            TokenHash = activation.TokenHash,
+            Purpose = SecurityTokenPurpose.Activation,
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(_account.ActivationTokenHours),
+            CreatedAt = nowUtc,
         });
+
+        string activationUrl = $"{_account.PublicBaseUrl}/api/v1/admin/account/activate?token={activation.Token}";
+        _outbox.EnqueueAccountActivation(tenant.Id, tenant.Name, input.OwnerEmail!, activationUrl);
 
         _db.AuditLogs.Add(new AuditLog
         {
@@ -90,7 +118,7 @@ internal sealed class TenantProvisioner
         await _db.SaveChangesAsync(ct);
 
         return new ProvisioningResult(
-            tenant.Id, tenant.Slug, apiKey, keyPrefix, input.OwnerEmail!, adminPassword,
+            tenant.Id, tenant.Slug, apiKey, keyPrefix, input.OwnerEmail!,
             input.Services!.Count, staffCount, closures);
     }
 
@@ -220,10 +248,6 @@ internal sealed class TenantProvisioner
         return (apiKey, keyPrefix, ApiKeyHasher.Hash(apiKey));
     }
 
-    private static string GeneratePassword() =>
-        // 18 caratteri esadecimali: random sicuro, leggibile e comunicabile.
-        Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(9));
-
     private static TimeOnly? ToTime(string? value) =>
         string.IsNullOrWhiteSpace(value)
             ? null
@@ -240,7 +264,6 @@ internal sealed record ProvisioningResult(
     string ApiKey,
     string KeyPrefix,
     string AdminEmail,
-    string AdminPassword,
     int ServiceCount,
     int StaffCount,
     int ClosureCount);
