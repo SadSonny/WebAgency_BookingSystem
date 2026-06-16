@@ -14,4 +14,8 @@ internal static class RateLimitingPolicies
     /// <summary>Policy più stringente per la CREAZIONE di prenotazioni (S1): per API key, limite basso
     /// contro lo spam con chiave pubblica esposta.</summary>
     public const string BookingCreation = "BookingCreation";
+
+    /// <summary>Policy stringente per gli endpoint sensibili dell'account (login, attivazione, reset, cambio
+    /// password): partizionata per IP, contro il brute-force delle credenziali.</summary>
+    public const string AccountSecurity = "account-security";
 }

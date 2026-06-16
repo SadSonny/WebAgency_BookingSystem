@@ -32,7 +32,8 @@ internal static class AdminAuthEndpoints
         .WithTags("Admin")
         .Produces<AdminTokenResponse>(StatusCodes.Status200OK)
         .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
-        .Produces<ErrorResponse>(StatusCodes.Status422UnprocessableEntity);
+        .Produces<ErrorResponse>(StatusCodes.Status422UnprocessableEntity)
+        .RequireRateLimiting(RateLimitingPolicies.AccountSecurity);
 
         return app;
     }

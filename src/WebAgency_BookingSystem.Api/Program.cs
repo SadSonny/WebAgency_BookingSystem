@@ -9,6 +9,7 @@ using System.Threading.RateLimiting;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -19,6 +20,7 @@ using WebAgency_BookingSystem.Api.Endpoints;
 using WebAgency_BookingSystem.Api.Endpoints.Admin;
 using WebAgency_BookingSystem.Api.Http;
 using WebAgency_BookingSystem.Api.Middleware;
+using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Infrastructure;
 using WebAgency_BookingSystem.Infrastructure.Auth;
 using WebAgency_BookingSystem.Infrastructure.Cors;
@@ -154,6 +156,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             },
             OnForbidden = context => HttpErrorWriter.WriteAsync(context.HttpContext, StatusCodes.Status403Forbidden,
                 "forbidden", "Accesso non consentito.", context.HttpContext.RequestAborted),
+            OnTokenValidated = async context =>
+            {
+                // WHY (SecurityStamp): invalida i JWT emessi prima di un cambio password. Confronto cache-first.
+                string? sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                string? stampClaim = context.Principal?.FindFirst(AdminClaims.SecurityStamp)?.Value;
+                if (!Guid.TryParse(sub, out Guid userId) || !Guid.TryParse(stampClaim, out Guid stamp))
+                {
+                    context.Fail("Token privo dei claim richiesti.");
+                    return;
+                }
+
+                var stamps = context.HttpContext.RequestServices.GetRequiredService<IUserSecurityStampService>();
+                if (!await stamps.IsCurrentAsync(userId, stamp, context.HttpContext.RequestAborted))
+                {
+                    context.Fail("Sessione non più valida.");
+                }
+            },
         };
     });
 builder.Services.AddAuthorization();
@@ -231,6 +250,19 @@ builder.Services.AddRateLimiter(options =>
         return RateLimitPartition.GetSlidingWindowLimiter($"booking:{partitionKey}", _ => new SlidingWindowRateLimiterOptions
         {
             PermitLimit = bookingPerMinute,
+            Window = TimeSpan.FromMinutes(1),
+            SegmentsPerWindow = 6,
+            QueueLimit = 0,
+        });
+    });
+
+    // Account: login/attivazione/reset/cambio password — partizione per IP, limite stringente anti brute-force.
+    options.AddPolicy(RateLimitingPolicies.AccountSecurity, httpContext =>
+    {
+        string ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
+        return RateLimitPartition.GetSlidingWindowLimiter($"account:{ip}", _ => new SlidingWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
             Window = TimeSpan.FromMinutes(1),
             SegmentsPerWindow = 6,
             QueueLimit = 0,

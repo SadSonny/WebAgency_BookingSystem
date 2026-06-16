@@ -61,6 +61,11 @@ public static class DependencyInjection
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
         services.AddScoped<IAdminAuthService, AdminAuthService>();
 
+        // Account Owner (onboarding/credenziali): impostazioni, validazione stamp, servizio account.
+        services.AddSingleton(AccountSettings.FromConfiguration(configuration));
+        services.AddScoped<IUserSecurityStampService, UserSecurityStampService>();
+        services.AddScoped<IAdminAccountService, AdminAccountService>();
+
         // Admin CRUD (6.x): servizi, orari/chiusure, staff, prenotazioni.
         services.AddScoped<IAdminServiceCatalog, AdminServiceCatalog>();
         services.AddScoped<IAdminScheduleManager, AdminScheduleManager>();

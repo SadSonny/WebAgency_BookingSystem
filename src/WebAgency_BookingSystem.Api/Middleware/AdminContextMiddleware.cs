@@ -52,7 +52,14 @@ public sealed class AdminContextMiddleware
         }
     }
 
-    // Si applica alle rotte /api/v1/admin tranne /api/v1/admin/auth (login, anonimo e senza tenant).
+    // Rotte /api/v1/admin che richiedono tenant dal JWT: tutte tranne /auth e le rotte account ANONIME
+    // (attivazione e reset, autenticate dal token nel corpo, non dal JWT).
+    // WHY: /api/v1/admin/account/password (cambio password autenticato) NON è escluso → ottiene il tenant dal
+    // JWT (corretto). "reset-request" è un segmento diverso da "reset", quindi va escluso esplicitamente.
     private static bool RequiresAdminTenant(PathString path) =>
-        path.StartsWithSegments("/api/v1/admin") && !path.StartsWithSegments("/api/v1/admin/auth");
+        path.StartsWithSegments("/api/v1/admin")
+        && !path.StartsWithSegments("/api/v1/admin/auth")
+        && !path.StartsWithSegments("/api/v1/admin/account/activate")
+        && !path.StartsWithSegments("/api/v1/admin/account/password/reset")
+        && !path.StartsWithSegments("/api/v1/admin/account/password/reset-request");
 }
