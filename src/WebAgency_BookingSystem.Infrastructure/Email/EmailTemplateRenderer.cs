@@ -66,6 +66,48 @@ internal sealed class EmailTemplateRenderer : IEmailTemplateRenderer
         return new EmailMessage(booking.CustomerEmail, booking.CustomerName, subject, html, text);
     }
 
+    public EmailMessage RenderAccountActivation(string businessName, string toEmail, string activationUrl)
+    {
+        string business = string.IsNullOrWhiteSpace(businessName) ? "BookingSystem" : businessName;
+        string subject = $"Attiva il tuo account — {business}";
+        string intro = "Il tuo account di gestione è stato creato. Imposta la tua password per attivarlo "
+            + "(il link scade tra 72 ore).";
+        string body = CtaHtml(activationUrl, "Attiva account e imposta password");
+        string html = Layout(business, "Attiva il tuo account", intro, body, FooterHtml());
+        string text = $"{intro}\n\nApri questo link per attivare l'account:\n{activationUrl}";
+        return new EmailMessage(toEmail, business, subject, html, text);
+    }
+
+    public EmailMessage RenderPasswordReset(string businessName, string toEmail, string resetUrl)
+    {
+        string business = string.IsNullOrWhiteSpace(businessName) ? "BookingSystem" : businessName;
+        string subject = $"Reimposta la password — {business}";
+        string intro = "Abbiamo ricevuto una richiesta di reimpostazione password. Se non sei stato tu, ignora "
+            + "questa email. Il link scade tra 1 ora.";
+        string body = CtaHtml(resetUrl, "Reimposta password");
+        string html = Layout(business, "Reimposta la password", intro, body, FooterHtml());
+        string text = $"{intro}\n\nApri questo link per reimpostare la password:\n{resetUrl}";
+        return new EmailMessage(toEmail, business, subject, html, text);
+    }
+
+    public EmailMessage RenderAccountSecurityConfirmation(string businessName, string toEmail, string heading, string message)
+    {
+        string business = string.IsNullOrWhiteSpace(businessName) ? "BookingSystem" : businessName;
+        string subject = $"{heading} — {business}";
+        string body = $"<tr><td style=\"padding:6px 12px;color:#111;font-size:14px;\">{Encode(message)}</td></tr>";
+        string html = Layout(business, heading, Encode(message), body, FooterHtml());
+        string text = $"{heading}\n\n{message}";
+        return new EmailMessage(toEmail, business, subject, html, text);
+    }
+
+    // CTA a bottone, con fallback testuale dell'URL (alcuni client non rendono i bottoni).
+    private static string CtaHtml(string url, string label) =>
+        $"<tr><td style=\"padding:16px 12px;\">"
+        + $"<a href=\"{Encode(url)}\" style=\"display:inline-block;background:#111827;color:#ffffff;"
+        + $"text-decoration:none;padding:12px 20px;border-radius:6px;font-size:15px;font-weight:600;\">{Encode(label)}</a>"
+        + $"<div style=\"margin-top:12px;color:#6b7280;font-size:12px;word-break:break-all;\">{Encode(url)}</div>"
+        + "</td></tr>";
+
     // ── Helpers di rendering ──────────────────────────────────────────────────
 
     private static string BusinessName(Booking booking) =>

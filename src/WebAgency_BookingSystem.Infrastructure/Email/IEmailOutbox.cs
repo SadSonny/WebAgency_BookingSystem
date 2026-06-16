@@ -24,4 +24,13 @@ public interface IEmailOutbox
 
     /// <summary>Accoda il promemoria pre-appuntamento destinato al cliente (T2.3).</summary>
     void EnqueueReminder(Booking booking);
+
+    /// <summary>Accoda l'email di attivazione account (link). Va chiamato nella transazione del provisioning/creazione.</summary>
+    void EnqueueAccountActivation(Guid tenantId, string businessName, string toEmail, string activationUrl);
+
+    /// <summary>Accoda l'email di reset password (link).</summary>
+    void EnqueuePasswordReset(Guid tenantId, string businessName, string toEmail, string resetUrl);
+
+    /// <summary>Accoda l'email di conferma di un'operazione su credenziali.</summary>
+    void EnqueueAccountSecurityConfirmation(Guid tenantId, string businessName, string toEmail, string heading, string message);
 }

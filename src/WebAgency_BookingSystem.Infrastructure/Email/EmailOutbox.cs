@@ -35,6 +35,40 @@ internal sealed class EmailOutbox : IEmailOutbox
     public void EnqueueReminder(Booking booking) =>
         Enqueue(_renderer.RenderReminder(booking), EmailKind.Reminder, booking);
 
+    public void EnqueueAccountActivation(Guid tenantId, string businessName, string toEmail, string activationUrl) =>
+        EnqueueAccount(_renderer.RenderAccountActivation(businessName, toEmail, activationUrl), EmailKind.AccountActivation, tenantId);
+
+    public void EnqueuePasswordReset(Guid tenantId, string businessName, string toEmail, string resetUrl) =>
+        EnqueueAccount(_renderer.RenderPasswordReset(businessName, toEmail, resetUrl), EmailKind.PasswordReset, tenantId);
+
+    public void EnqueueAccountSecurityConfirmation(Guid tenantId, string businessName, string toEmail, string heading, string message) =>
+        EnqueueAccount(_renderer.RenderAccountSecurityConfirmation(businessName, toEmail, heading, message), EmailKind.AccountSecurityConfirmation, tenantId);
+
+    private void EnqueueAccount(EmailMessage message, EmailKind kind, Guid tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(message.ToEmail))
+        {
+            _logger.LogWarning("Email account '{Kind}' non accodata: destinatario assente.", kind);
+            return;
+        }
+
+        _db.OutboxEmails.Add(new OutboxEmail
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            BookingId = null,
+            Kind = kind,
+            Status = OutboxEmailStatus.Pending,
+            ToEmail = message.ToEmail,
+            ToName = message.ToName,
+            Subject = message.Subject,
+            HtmlBody = message.HtmlBody,
+            TextBody = message.TextBody,
+            Attempts = 0,
+            NextAttemptAt = DateTimeOffset.UtcNow,
+        });
+    }
+
     private void Enqueue(EmailMessage message, EmailKind kind, Booking booking)
     {
         if (string.IsNullOrWhiteSpace(message.ToEmail))

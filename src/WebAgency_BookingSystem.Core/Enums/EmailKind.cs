@@ -17,4 +17,13 @@ public enum EmailKind
 
     /// <summary>Promemoria pre-appuntamento inviato al cliente (T2.3).</summary>
     Reminder,
+
+    /// <summary>Invito ad attivare l'account Owner (link di attivazione).</summary>
+    AccountActivation,
+
+    /// <summary>Invito a reimpostare la password (link di reset).</summary>
+    PasswordReset,
+
+    /// <summary>Conferma di un'operazione su credenziali (attivazione/cambio/reset password).</summary>
+    AccountSecurityConfirmation,
 }

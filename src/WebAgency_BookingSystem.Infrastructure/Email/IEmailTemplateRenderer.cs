@@ -24,4 +24,13 @@ internal interface IEmailTemplateRenderer
 
     /// <summary>Email al cliente con il promemoria dell'appuntamento imminente (T2.3).</summary>
     EmailMessage RenderReminder(Booking booking);
+
+    /// <summary>Email con il link per attivare l'account e impostare la prima password.</summary>
+    EmailMessage RenderAccountActivation(string businessName, string toEmail, string activationUrl);
+
+    /// <summary>Email con il link per reimpostare la password.</summary>
+    EmailMessage RenderPasswordReset(string businessName, string toEmail, string resetUrl);
+
+    /// <summary>Email di conferma di un'operazione su credenziali (attivazione/cambio/reset).</summary>
+    EmailMessage RenderAccountSecurityConfirmation(string businessName, string toEmail, string heading, string message);
 }
