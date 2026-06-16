@@ -22,7 +22,11 @@ internal sealed class JwtTokenGenerator : IJwtTokenGenerator
         DateTimeOffset now = DateTimeOffset.UtcNow;
         DateTimeOffset expiresAt = now.AddHours(_settings.ExpiryHours);
 
-        var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
+        // WHY: assegniamo un KeyId stabile alla chiave simmetrica così il JWT emesso porta un header "kid".
+        // Senza kid, alcune versioni di Microsoft.IdentityModel (handler JsonWebToken) entrano nel ramo di
+        // risoluzione chiavi via ConfigurationManager (vuoto) e falliscono con IDX10517 anche se la chiave di
+        // validazione è corretta. Lo stesso KeyId è impostato lato validazione, garantendo il match diretto.
+        var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret)) { KeyId = JwtSettings.SigningKeyId };
         var descriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(

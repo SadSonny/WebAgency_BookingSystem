@@ -29,6 +29,12 @@ public static class TestData
     public static readonly Guid ServiceParallelId = new("20000000-0000-0000-0000-000000000004");
     public static readonly Guid StaffId         = new("30000000-0000-0000-0000-000000000001");
 
+    // Owner admin attivato — usato dai test account (login read-only sul seeded Owner; i test che mutano la
+    // password usano invece utenti usa-e-getta per non contaminare la cache stamp condivisa del factory).
+    public static readonly Guid OwnerUserId = new("40000000-0000-0000-0000-000000000001");
+    public const string OwnerEmail = "owner@test.example.it";
+    public const string OwnerPassword = "TestPassword123!";
+
     // Lunedì ≥ 7 giorni da oggi: giorno lavorativo, dentro i 30 visibili, ben oltre MinAdvanceHours=1h.
     public static DateOnly FutureMonday =>
         Enumerable.Range(7, 14)
@@ -80,6 +86,14 @@ public static class TestData
             Id = ApiKeyId, TenantId = TenantId, KeyHash = ApiKeyHash,
             KeyPrefix = RawApiKey[..8], Description = "Integration test key",
             Active = true, CreatedAt = now,
+        });
+
+        db.Users.Add(new User
+        {
+            Id = OwnerUserId, TenantId = TenantId, Email = OwnerEmail,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(OwnerPassword),
+            ActivatedAt = now, SecurityStamp = Guid.NewGuid(),
+            Role = UserRole.Owner, Active = true, CreatedAt = now, UpdatedAt = now,
         });
 
         db.Services.AddRange(
@@ -172,6 +186,18 @@ public static class TestData
                 Id = ServiceParallelId, TenantId = TenantId, Name = "Servizio Parallelo",
                 DurationMinutes = 30, BasePrice = 10m, ParallelSlots = 2,
                 Active = true, DisplayOrder = 4, CreatedAt = now, UpdatedAt = now,
+            });
+            changed = true;
+        }
+
+        if (!await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Id == OwnerUserId))
+        {
+            db.Users.Add(new User
+            {
+                Id = OwnerUserId, TenantId = TenantId, Email = OwnerEmail,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(OwnerPassword),
+                ActivatedAt = now, SecurityStamp = Guid.NewGuid(),
+                Role = UserRole.Owner, Active = true, CreatedAt = now, UpdatedAt = now,
             });
             changed = true;
         }

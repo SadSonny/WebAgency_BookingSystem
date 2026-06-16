@@ -13,6 +13,11 @@ public sealed record JwtSettings(string Secret, string Issuer, string Audience, 
 {
     private const int MinSecretLength = 32;
 
+    /// <summary>KeyId ("kid") stabile della chiave di firma simmetrica, condiviso tra generazione e validazione
+    /// del JWT. Garantisce che il token porti un header "kid" e che il validatore risolva direttamente la chiave
+    /// configurata, evitando IDX10517 ("kid missing") su alcune versioni di Microsoft.IdentityModel.</summary>
+    public const string SigningKeyId = "bookingsystem-admin-hs256";
+
     /// <summary>Costruisce le impostazioni dalla configurazione. Lancia se il segreto manca o è troppo corto.</summary>
     public static JwtSettings FromConfiguration(IConfiguration configuration)
     {

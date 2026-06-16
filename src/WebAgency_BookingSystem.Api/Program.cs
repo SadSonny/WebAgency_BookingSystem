@@ -133,6 +133,11 @@ if (builder.Environment.IsProduction()
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        // WHY: manteniamo i nomi dei claim ORIGINALI del token (sub, security_stamp, tenant_id) invece della
+        // mappatura legacy che rinomina "sub" → ClaimTypes.NameIdentifier. Sia la generazione (JwtTokenGenerator)
+        // sia la lettura (OnTokenValidated, AdminContextMiddleware, endpoint) usano i nomi brevi: senza questo,
+        // FindFirst("sub")/("security_stamp") restituirebbe null e ogni richiesta admin fallirebbe con 401.
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -141,7 +146,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = jwtSettings.Audience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Secret)),
+            // WHY: stesso KeyId usato in generazione (JwtTokenGenerator) → il validatore risolve la chiave per
+            // "kid" senza passare dal ConfigurationManager vuoto (che causa IDX10517 su Microsoft.IdentityModel 8.x).
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Secret)) { KeyId = JwtSettings.SigningKeyId },
             RoleClaimType = ClaimTypes.Role,
             NameClaimType = JwtRegisteredClaimNames.Sub,
             ClockSkew = TimeSpan.FromSeconds(30),
@@ -198,6 +205,13 @@ int ipPermitPerMinute = builder.Configuration.GetValue<int?>("RATE_LIMIT_IP_PER_
 // API key pubblica esposta nel frontend, va limitata più strettamente del resto per arginare lo spam.
 int bookingPerMinute = builder.Configuration.GetValue<int?>("RATE_LIMIT_BOOKING_PER_MINUTE")
     ?? builder.Configuration.GetValue<int?>("RateLimiting:BookingPerMinute")
+    ?? 10;
+
+// WHY: il limite account (login/attivazione/reset/cambio) è stringente anti brute-force, ma deve essere
+// configurabile perché in test (WebApplicationFactory) l'IP client è null → tutte le chiamate account
+// condividono una sola partizione; un limite basso causerebbe 429 spuri. Alzato via env nel factory.
+int accountPerMinute = builder.Configuration.GetValue<int?>("RATE_LIMIT_ACCOUNT_PER_MINUTE")
+    ?? builder.Configuration.GetValue<int?>("RateLimiting:AccountPerMinute")
     ?? 10;
 
 builder.Services.AddRateLimiter(options =>
@@ -262,7 +276,7 @@ builder.Services.AddRateLimiter(options =>
         string ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
         return RateLimitPartition.GetSlidingWindowLimiter($"account:{ip}", _ => new SlidingWindowRateLimiterOptions
         {
-            PermitLimit = 10,
+            PermitLimit = accountPerMinute,
             Window = TimeSpan.FromMinutes(1),
             SegmentsPerWindow = 6,
             QueueLimit = 0,
