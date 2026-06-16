@@ -37,6 +37,7 @@ public sealed class BookingSystemDbContext : DbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<User> Users => Set<User>();
     public DbSet<OutboxEmail> OutboxEmails => Set<OutboxEmail>();
+    public DbSet<UserSecurityToken> UserSecurityTokens => Set<UserSecurityToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
