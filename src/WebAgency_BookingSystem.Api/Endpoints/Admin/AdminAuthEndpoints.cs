@@ -1,5 +1,6 @@
 // [INTENT]: Endpoint di login admin (POST /api/v1/admin/auth/token). Anonimo (non richiede JWT) e senza
-// risoluzione tenant: il tenant è identificato dallo slug nel corpo. Valida l'input e delega all'IAdminAuthService.
+// risoluzione tenant: l'utente è identificato dalla sola email (univoca globale); il tenant si deriva dall'utente.
+// Valida l'input e delega all'IAdminAuthService.
 
 using FluentValidation;
 using WebAgency_BookingSystem.Api.Http;
@@ -28,7 +29,7 @@ internal static class AdminAuthEndpoints
         })
         .WithName("AdminLogin")
         .WithSummary("Login admin")
-        .WithDescription("Autentica un utente admin (tenant slug + email + password) e restituisce un token JWT.")
+        .WithDescription("Autentica un utente admin (email + password) e restituisce un token JWT.")
         .WithTags("Admin")
         .Produces<AdminTokenResponse>(StatusCodes.Status200OK)
         .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)

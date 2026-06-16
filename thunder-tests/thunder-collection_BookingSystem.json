@@ -107,7 +107,7 @@
       "url": "{{baseUrl}}/api/v1/admin/auth/token", "method": "POST", "sortNum": 10000,
       "created": "2026-06-15T10:00:00.000Z", "modified": "2026-06-15T10:00:00.000Z",
       "headers": [ { "name": "Content-Type", "value": "application/json" } ], "params": [],
-      "body": { "type": "json", "raw": "{\n  \"tenantSlug\": \"{{tenantSlug}}\",\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}", "form": [] },
+      "body": { "type": "json", "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}", "form": [] },
       "tests": [
         { "type": "res-code", "custom": "", "action": "equal", "value": "200" },
         { "type": "set-env-var", "custom": "json.token", "action": "setto", "value": "adminJwt" }

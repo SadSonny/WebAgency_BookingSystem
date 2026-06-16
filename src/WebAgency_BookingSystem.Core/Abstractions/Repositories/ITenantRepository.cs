@@ -20,9 +20,6 @@ public interface ITenantRepository
     /// <summary>Restituisce il tenant per Id (usato dal contesto admin per popolare il tenant dal JWT).</summary>
     Task<Tenant?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>Restituisce il tenant per slug (usato dal login admin per identificare l'attività).</summary>
-    Task<Tenant?> GetBySlugAsync(string slug, CancellationToken ct = default);
-
     /// <summary>
     /// Restituisce i siteUrl di tutti i tenant ATTIVI (non vuoti). Usato dal refresh delle origini CORS
     /// (PH-1) per costruire l'insieme dei domini ammessi senza richiedere configurazione manuale.
