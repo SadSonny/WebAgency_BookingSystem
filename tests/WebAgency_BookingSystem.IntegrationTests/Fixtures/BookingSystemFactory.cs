@@ -54,6 +54,9 @@ public sealed class BookingSystemFactory : WebApplicationFactory<Program>
                 // appsettings.Development.json (che imposterebbe Mailpit), quindi ha priorità. Il test
                 // dedicato la sovrascrive a "Mailpit" via WithWebHostBuilder.
                 ["EMAIL_PROVIDER"] = "None",
+                // WHY: il sink dei log su DB non è oggetto dei test; lo disattiviamo per isolare la suite
+                // (niente scritture di log nel container né auto-create della tabella logs).
+                ["DatabaseLogging:Enabled"] = "false",
             });
         });
 

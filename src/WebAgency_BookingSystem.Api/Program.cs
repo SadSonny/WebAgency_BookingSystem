@@ -20,6 +20,7 @@ using Serilog.Context;
 using WebAgency_BookingSystem.Api.Endpoints;
 using WebAgency_BookingSystem.Api.Endpoints.Admin;
 using WebAgency_BookingSystem.Api.Http;
+using WebAgency_BookingSystem.Api.Logging;
 using WebAgency_BookingSystem.Api.Middleware;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Infrastructure;
@@ -39,15 +40,17 @@ if (!string.IsNullOrWhiteSpace(port))
 }
 
 // ── Serilog (4.4) ───────────────────────────────────────────────────────────
-// WHY: logging strutturato su Console (Railway cattura stdout). La request logging di Serilog non logga
-// l'IP del cliente di default → GDPR-safe. Livelli e override letti da appsettings (sezione Serilog).
+// WHY: logging strutturato su Console (Railway cattura stdout) E, in tutti gli ambienti, persistenza su DB
+// (sink PostgreSQL, ADDITIVO) per consultare i log via SQL — vedi DatabaseLogSink. La request logging di Serilog
+// non logga l'IP del cliente di default → GDPR-safe. Livelli e override letti da appsettings (sezione Serilog).
 builder.Host.UseSerilog((context, services, configuration) => configuration
     .ReadFrom.Configuration(context.Configuration)
     .ReadFrom.Services(services)
     .Enrich.FromLogContext()
     .Enrich.WithProperty("Application", "WebAgency_BookingSystem.Api")
     .Enrich.WithProperty("Environment", context.HostingEnvironment.EnvironmentName)
-    .WriteTo.Console());
+    .WriteTo.Console()
+    .ConfigureDatabaseSink(DatabaseLogSettings.FromConfiguration(context.Configuration)));
 
 // ── OpenAPI (1.0) ─────────────────────────────────────────────────────────────
 builder.Services.AddOpenApi(options =>
@@ -80,6 +83,9 @@ builder.Services.AddOpenApi(options =>
 
 // ── Infrastructure (DbContext, repository, tenant context, email) ─────────────
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Retention dei log applicativi persistiti su DB (purga oltre DatabaseLogging:RetentionDays, default 90).
+builder.Services.AddHostedService<LogRetentionJob>();
 
 // ── Forwarded headers (dietro proxy Railway) ──────────────────────────────────
 // WHY: dietro il proxy della piattaforma l'IP/scheme reali del client arrivano negli header X-Forwarded-*.

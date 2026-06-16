@@ -257,6 +257,17 @@ In **produzione** non si usano né appsettings né user-secrets: solo **variabil
 | `RATE_LIMIT_ACCOUNT_PER_MINUTE` | Richieste max/min per IP sulle rotte account+login (default: 10) | `10` |
 | `DB_AUTO_MIGRATE` | Applica le migration EF all'avvio dell'API (opt-in; default `false`). In Development è già `true` via `appsettings.Development.json`. In produzione lasciare `false` se più istanze girano in parallelo (preferire uno step di migrazione nella pipeline) | `true` |
 
+## Logging
+
+I log applicativi sono gestiti da **Serilog** con **due sink additivi**, in tutti gli ambienti:
+- **Console** (stdout) — catturata dalla piattaforma (Railway). Non si perde mai, anche durante incidenti del DB.
+- **PostgreSQL** (`Serilog.Sinks.Postgresql.Alternative`) — persiste i log dal livello `Information` in su nella tabella **`logs`** (auto-creata, **separata** da `audit_log`), interrogabile via SQL. Scritture in **batch** con connessione Npgsql propria del sink (non EF), quindi l'INSERT dei log non si auto-logga. Colonne: `timestamp, level, message, message_template, exception, properties (jsonb), application, environment, request_id`. Config in [DatabaseLogSink.cs](src/WebAgency_BookingSystem.Api/Logging/DatabaseLogSink.cs)/[DatabaseLogSettings.cs](src/WebAgency_BookingSystem.Api/Logging/DatabaseLogSettings.cs).
+- **Retention**: `LogRetentionJob` (BackgroundService, giornaliero) purga la tabella `logs` oltre `DatabaseLogging:RetentionDays` (default **90 giorni**).
+- **GDPR**: i log sono PII-free (la request logging non logga l'IP; i parametri SQL EF sono mascherati). La tabella `logs` rientra nella retention.
+- **`audit_log`** (tabella DB) è una cosa diversa: registro di **eventi di business** (es. `tenant_created`, `booking_created`), non i log applicativi.
+
+Config (sezione `DatabaseLogging` in `appsettings.json`): `Enabled` (default `true`), `MinimumLevel` (`Information`), `RetentionDays` (`90`), `Table` (`logs`, validato whitelist). Disattivato nei test di integrazione. In produzione i log EF restano a `Warning` (vedi `Serilog:MinimumLevel:Override`), evitando flood di SQL nella tabella.
+
 ## Endpoint API — Sommario
 
 ### Pubblici (autenticazione: `X-Api-Key`)
