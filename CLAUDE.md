@@ -67,6 +67,8 @@ Le seguenti decisioni sono state prese dall'utente e non vanno rinegoziare:
 
 Backend centralizzato multi-tenant per la gestione di prenotazioni di attività locali italiane (barbershop, estetica, medici, ecc.). Ogni tenant è un'attività commerciale con proprie configurazioni, servizi, staff e regole di prenotazione.
 
+> **Posizionamento (importante):** il **cliente del prodotto è un'agenzia web** che realizza siti e li collega a questo backend; **non** l'attività finale. L'architettura **headless/API-only (AD-09) è deliberata**: widget di prenotazione e pannello Owner li costruisce l'agenzia. UI di prodotto, pagamenti interni, billing e sync calendario sono **fuori scope per scelta**. Dettagli, roadmap e voci aperte in [`Claude_Instructions/VISIONE_PRODOTTO_E_ROADMAP.md`](Claude_Instructions/VISIONE_PRODOTTO_E_ROADMAP.md).
+
 ## Stack
 
 | Componente | Tecnologia |
@@ -305,6 +307,7 @@ POST   /api/v1/admin/account/password/reset       body: { token, newPassword }  
 ## Riferimenti
 
 Tutta la documentazione vive in `Claude_Instructions/` (unico `.md` nella root è questo `CLAUDE.md`):
+- **Visione di prodotto, scope e roadmap**: `Claude_Instructions/VISIONE_PRODOTTO_E_ROADMAP.md` (chi è il cliente, cosa è dentro/fuori scope e perché)
 - Spec originali: `Claude_Instructions/` (00-indice, 01-architettura, 02-schema, 03-endpoint, 04-disponibilità, 05-provisioning)
 - Piano e avanzamento: `Claude_Instructions/DEVELOPMENT_PLAN.md`
 - Guida integrazione (API, onboarding sito, CLI): `Claude_Instructions/GUIDA_INTEGRAZIONE_API.md`
