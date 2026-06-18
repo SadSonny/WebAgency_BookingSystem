@@ -1,6 +1,16 @@
 # Development Plan — WebAgency BookingSystem
 
-## Stato: V2.3 ONBOARDING CREDENZIALI OWNER COMPLETATO (2026-06-16)
+## Stato: AGENCY PROVISIONING API COMPLETATA (2026-06-18)
+
+> **V1 + V2 email + PH-1..PH-5 + V2.1 salone reale + V2.2 hardening + V2.3 onboarding Owner + Agency Provisioning API.** Build verde
+> (0 warning), **131 test verdi** (96 unit + 35 integration). Agency Provisioning (2026-06-18): identità `PlatformAdmin` separata dai tenant,
+> endpoint `/api/v1/platform/*` completi (setup break-glass, auth, crea/elenca/disattiva tenant, API key management, resend attivazione),
+> `ITenantProvisioningService` condiviso CLI+API, `TenantResolutionMiddleware` esclude `/platform/*`,
+> migration `AddPlatformAdmin`, 4 nuovi test `PlatformFlowTests`.
+> **→ Prossimo:** Railway deploy (applicare TUTTE le migration incl. `AddPlatformAdmin`; impostare `PLATFORM_SETUP_TOKEN`;
+> smoke test setup platform → login platform → crea tenant). Vedi §Agency Provisioning per i dettagli.
+
+## (storico) Stato: V2.3 ONBOARDING CREDENZIALI OWNER COMPLETATO (2026-06-16)
 
 > **V1 + V2 email + PH-1..PH-5 + V2.1 salone reale + V2.2 hardening + V2.3 onboarding Owner.** Build verde
 > (0 warning), **127 test verdi** (96 unit + 31 integration). V2.3 (2026-06-16): login email globale [breaking],
@@ -288,6 +298,34 @@ email multi-servizio, reschedule admin. Poi 8.7 (branding). **NON** è prevista 
 > NON è una Admin UI per i tenant (quella non esiste, vedi AD-09). È uno strumento **interno** per noi dev,
 > a sola lettura, per osservare il sistema cross-tenant. Da definire meglio prima di stimare/implementare.
 
+---
+
+## Agency Provisioning/Gestione — API Platform (2026-06-18)
+
+> Completata 2026-06-18. Backend dell'API Platform per la gestione dell'intero ciclo di vita dei tenant, senza CLI né accesso DB.
+
+- [x] **Identità `PlatformAdmin`**: entità separata dai tenant (`TenantId` = null); migration `AddPlatformAdmin`.
+- [x] **`POST /platform/setup`**: endpoint break-glass (anonimo) gated da env `PLATFORM_SETUP_TOKEN`; `404` se non configurato; crea-o-reimposta l'admin per l'email indicata.
+- [x] **`POST /platform/auth/token`**: login platform → JWT con ruolo `PlatformAdmin` e audience `Jwt:PlatformAudience`.
+- [x] **`POST /platform/account/password`**: cambio password platform admin (JWT).
+- [x] **`POST /platform/tenants`**: crea tenant con body `ProvisioningInput` (uguale alla CLI); logica condivisa via `ITenantProvisioningService`; → `201` + API key in chiaro una sola volta; `409` slug duplicato; `422` validazione.
+- [x] **`GET /platform/tenants`** (paginato) e **`GET /platform/tenants/{id}`**: elenco e dettaglio.
+- [x] **`POST /platform/tenants/{id}/deactivate`** e **`/reactivate`**: attivazione/sospensione.
+- [x] **`GET|POST /platform/tenants/{id}/api-keys`** e **`DELETE /platform/tenants/{id}/api-keys/{keyId}`**: gestione API key del tenant (effetto immediato su cache).
+- [x] **`POST /platform/tenants/{id}/owner/resend-activation`**: ri-genera token 72h e re-accoda email di attivazione.
+- [x] **`TenantResolutionMiddleware`** aggiornato per escludere `/api/v1/platform` (le rotte platform usano JWT, non `X-Api-Key`).
+- [x] **Config**: `PLATFORM_SETUP_TOKEN` (env, abilita/gate setup), `Jwt:PlatformAudience` (default `WebAgency_BookingSystem.Platform`).
+- [x] **Test**: 4 nuovi `PlatformFlowTests` (integration). Suite totale: **131 test verdi** (96 unit + 35 integration).
+
+**Follow-up rimandati (spec §9, da implementare in sessioni future):**
+- Invito multi-admin per tenant (`POST /platform/tenants/{id}/admins`).
+- Reset password `PlatformAdmin` via email.
+- Attivazione primo admin platform via email (alternativa al setup token).
+- Edit tenant (`PATCH /platform/tenants/{id}`).
+- Audit completo per-sorgente: attore `platform-admin:{id}` nelle righe `audit_log` per deactivate/api-key/resend (oggi tracciate solo dai log applicativi su DB).
+
+**Audit attuale:** la creazione tenant continua a scrivere `audit_log` con attore `"provisioning"` (servizio condiviso invariato). Le azioni platform (deactivate/api-key/resend) sono tracciate dai log applicativi (persistiti su DB). Quando si implementa l'audit completo: passare l'id dell'admin agente (dal claim `sub`) ai metodi mutativi e scrivere righe `AuditLog`.
+
 ### 10. Dashboard Observability Interna
 - [ ] 10.0 **Definizione** (design doc): scopo, utenti (solo dev), dati esposti, modello di accesso/segretezza,
   hosting (stessa app vs progetto separato), stack frontend. **Prerequisito a ogni 10.x.**
@@ -368,6 +406,7 @@ Le seguenti modifiche allo schema rispetto ai documenti `Claude_Instructions/02-
 | 2026-06-15 | Hardening V2.2 | **Performance P1-P4 + Sicurezza S1-S5 completati**: batch disponibilità/booking "qualsiasi" (P1/P2), reminder finestra+indice (P3), paginazione admin bookings (P4); rate-limit creazione per chiave (S1), retention/erasure GDPR (S2), lockout login admin (S3), rotazione/revoca API key (S4), guard JWT prod (S5). 2 migration (AddReminderScanIndex, AddUserLockout). Build 0 warning, **120 test verdi** (95 unit + 25 integration). DbContext pooling escluso (R-24). |
 | 2026-06-15 | Salone reale | **V2.1 Tier 1+2 completati**: assenze operatore StaffTimeOff (T1.1), "qualsiasi operatore" con disponibilità aggregata + auto-assegnazione (T1.2), appuntamento multi-servizio un operatore BookingItem (T1.3), cancellazione admin notifica cliente (T2.1), reschedule cliente via token (T2.2), reminder pre-appuntamento configurabile (T2.3). 3 migration (StaffTimeOff, BookingItems, ReminderFields). Build 0 warning, **119 test verdi** (95 unit + 24 integration). Follow-up: disponibilità combinata combo, template email multi-servizio, reschedule admin. |
 | 2026-06-15 | Hardening | **PH-1..PH-5 completati**: CORS per-tenant dinamico dai siteUrl (catalogo + refresh job); advisory lock bloccante con lock_timeout anti-409-spurio su parallelSlots>1 (R-17); email outbox transazionale con dispatcher/retry, refactor trasporto IEmailSender + migration AddEmailOutbox (R-25); user-secrets dev (R-16); confronti DST-corretti via TenantTime.ToInstant (R-32); pooling (R-24) non implementato di proposito con motivazione. Build 0 warning, **103 test verdi** (87 unit + 16 integration). |
+| 2026-06-18 | Feature | **Agency Provisioning API**: identità `PlatformAdmin` separata dai tenant (nessun `TenantId`); endpoint `/api/v1/platform/*`: setup break-glass (gated da `PLATFORM_SETUP_TOKEN`), login, cambio password, crea/elenca/disattiva-riattiva tenant, gestione API key tenant, resend attivazione Owner. `ITenantProvisioningService` condiviso CLI+API. `TenantResolutionMiddleware` esclude `/api/v1/platform`. Config nuove: `PLATFORM_SETUP_TOKEN`, `Jwt:PlatformAudience`. Migration `AddPlatformAdmin`. Build 0 warning, **131 test verdi** (96 unit + 35 integration, +4 `PlatformFlowTests`). Follow-up rimandati: invito multi-admin, reset platform via email, `PATCH /platform/tenants/{id}`, audit per-sorgente (`platform-admin:{id}`). |
 | 2026-06-16 | Feature | **V2.3 — Onboarding credenziali Owner**: login per email globale [breaking, rimosso tenantSlug], attivazione Owner via link email (provisioning senza password), cambio password autenticato, reset password con token e risposta neutra, SecurityStamp+invalidazione JWT al cambio/reset, pagine HTML set-password servite dall'API (deroga AD-09 circoscritta), rate-limit AccountSecurity per IP (10/min), policy password min 12 char, config PUBLIC_BASE_URL, 2 migration nuove (MakeEmailGlobalAndAddSecurityFields, AddUserSecurityTokens), fix JWT MapInboundClaims=false+KeyId stabile (⚠ smoke test login admin al deploy). Build 0 warning, **127 test verdi** (96 unit + 31 integration, +6 account). |
 | 2026-06-14 | Direzione | Confermato prodotto **API-only senza Admin UI** (AD-09). Aggiunta **Sezione 10** (dashboard interna dev per observability cross-tenant), rimandata. Avvio V2 email Brevo. |
 | 2026-06-13 | Test | 9.8: logica estratta in `IExpiredBookingCleaner` (scoped, testabile in isolation). `CleanupJobTests`: prenotazione ieri → NoShow, prenotazione futura → invariata. `InternalsVisibleTo` per IntegrationTests. Fix `EnsureLaterSeedAsync` con `IgnoreQueryFilters()`. Suite: **61 test verdi** (48 unit + 13 integration). |

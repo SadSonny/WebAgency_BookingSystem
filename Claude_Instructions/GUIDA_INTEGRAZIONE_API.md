@@ -9,7 +9,7 @@ rivolto agli sviluppatori che collegano i siti dei clienti; allineato al codice 
 > **Non esiste una Admin UI** (AD-09): la gestione avviene via Admin API + CLI di provisioning.
 > Questa guida copre: API esposte, onboarding di un nuovo sito, uso della CLI.
 
-Ultimo allineamento al codice: **2026-06-16** (include hardening PH-1..PH-5 + V2.3 onboarding Owner).
+Ultimo allineamento al codice: **2026-06-18** (include hardening PH-1..PH-5 + V2.3 onboarding Owner + Agency Provisioning API).
 
 ---
 
@@ -29,11 +29,14 @@ Tutte le rotte sono versionate sotto `/api/v1`.
 > locale** l'API gira in chiaro su HTTP per comodità (nessun certificato da gestire). Quindi: i siti client
 > chiamano sempre `https://…` in produzione — l'HTTP visto in questa guida riguarda solo l'ambiente locale.
 
-### Autenticazione — due livelli distinti
+### Autenticazione — tre livelli distinti
 | Livello | Header | Chi lo usa | Scope |
 |---|---|---|---|
-| **Pubblica** | `X-Api-Key: <chiave>` | Il widget/sito del cliente finale | Tutte le rotte `/api/v1/*` tranne `/health*` e `/admin/*` |
+| **Pubblica** | `X-Api-Key: <chiave>` | Il widget/sito del cliente finale | Tutte le rotte `/api/v1/*` tranne `/health*`, `/admin/*` e `/platform/*` |
 | **Admin** | `Authorization: Bearer <JWT>` | Backoffice/script del titolare | Rotte `/api/v1/admin/*` (tranne il login) |
+| **Platform** | `Authorization: Bearer <JWT PlatformAdmin>` | Agenzia — gestione tenant | Rotte `/api/v1/platform/*` (tranne `/platform/auth/token` e `/platform/setup`) |
+
+> **Identità separate:** il JWT `PlatformAdmin` usa un'audience dedicata (`Jwt:PlatformAudience`, default `WebAgency_BookingSystem.Platform`) e **non** è accettato sulle rotte admin tenant (e viceversa). Le rotte platform **non** usano `X-Api-Key`: il `TenantResolutionMiddleware` le esclude automaticamente.
 
 Ogni **API key appartiene a un solo tenant**. Tutte le risorse restituite sono automaticamente filtrate per
 quel tenant (isolamento via global query filter su `tenant_id`): un sito non può mai vedere i dati di un altro.
@@ -308,6 +311,129 @@ POST /api/v1/admin/account/password/reset  { "token": "…", "newPassword": "…
 
 ---
 
+## 2.4 API Platform agenzia (auth: JWT PlatformAdmin)
+
+La **Platform API** è lo strumento operativo dell'agenzia per gestire il ciclo di vita dei tenant senza accesso diretto al DB o alla CLI. L'identità `PlatformAdmin` è separata da tutti i tenant (nessun `tenant_id` nel JWT).
+
+### Bootstrap (primo avvio — break-glass)
+
+Prima di poter usare le rotte platform è necessario creare l'admin di piattaforma tramite il token segreto configurato nell'env `PLATFORM_SETUP_TOKEN`. Se la variabile non è configurata, l'endpoint risponde **404**.
+
+```
+POST /api/v1/platform/setup
+// Nessuna auth richiesta
+{ "setupToken": "<PLATFORM_SETUP_TOKEN>", "email": "admin@agenzia.it", "password": "..." }
+// → 204 (crea-o-reimposta l'admin per quell'email)
+```
+
+> ⚠ Usare `setup` **solo al primo avvio** (o come break-glass in caso di perdita credenziali). In produzione configurare `PLATFORM_SETUP_TOKEN` come segreto Railway e rimuoverlo dall'env dopo il bootstrap iniziale.
+
+### Login platform
+
+```
+POST /api/v1/platform/auth/token
+// Nessuna auth richiesta
+{ "email": "admin@agenzia.it", "password": "..." }
+// → { "token": "<JWT>", "tokenType": "Bearer", "expiresAt": "..." }
+```
+
+Il JWT contiene il ruolo `PlatformAdmin` e l'audience platform. Usarlo come `Authorization: Bearer <JWT>` su tutte le rotte `/platform/*` che richiedono auth.
+
+### Cambio password platform
+
+```
+POST /api/v1/platform/account/password
+Authorization: Bearer <JWT PlatformAdmin>
+{ "currentPassword": "...", "newPassword": "..." }
+// → 204
+```
+
+### Gestione tenant
+
+#### Crea tenant
+
+```
+POST /api/v1/platform/tenants
+Authorization: Bearer <JWT PlatformAdmin>
+```
+Body — `ProvisioningInput` (stesso schema della CLI):
+```jsonc
+{
+  "slug": "barbershop-mario",
+  "name": "Barbershop Mario",
+  "siteUrl": "https://barbershopmario.it",
+  "ownerEmail": "owner@barbershop.it",
+  "timezone": "Europe/Rome",
+  "bookingRules": {
+    "minAdvanceHours": 1, "minCancellationHours": 24, "visibleDaysAhead": 30,
+    "staffChoiceEnabled": true, "notificationMethod": "email"
+  },
+  "businessHours": [
+    { "dayOfWeek": 1, "isOpen": true, "openTime": "09:00", "closeTime": "19:00",
+      "breakStart": "13:00", "breakEnd": "14:00" }
+  ],
+  "specialClosures": [],
+  "services": [
+    { "localId": "s1", "name": "Taglio Uomo", "durationMinutes": 30, "basePrice": 18.0,
+      "parallelSlots": 1, "bufferEnabled": false, "bufferMinutes": 0, "bufferPosition": "After" }
+  ],
+  "staff": [
+    { "localId": "st1", "name": "Marco", "role": "Barbiere",
+      "businessHours": [ { "dayOfWeek": 1, "isAvailable": true, "startTime": "09:00", "endTime": "19:00" } ],
+      "services": [ { "serviceLocalId": "s1", "priceOverride": null } ] }
+  ]
+}
+```
+→ `201` con la **API key in chiaro** (mostrata **una sola volta** — salvarla subito):
+```json
+{ "tenantId": "...", "slug": "barbershop-mario", "apiKey": "bk_live_..." }
+```
+→ `409` se lo slug esiste già · `422` per errori di validazione.
+
+> La CLI di provisioning usa lo stesso `ITenantProvisioningService` internamente: il comportamento è identico.
+> L'Owner riceve automaticamente l'email di attivazione (flusso V2.3).
+
+#### Elenco e dettaglio tenant
+
+```
+GET /api/v1/platform/tenants?page=1&pageSize=20
+// → { "items": [...], "page": 1, "pageSize": 20, "total": N }
+
+GET /api/v1/platform/tenants/{id}
+// → dettaglio tenant (configurazione, stato, slug, email owner, ...)
+```
+
+#### Attivazione / disattivazione
+
+```
+POST /api/v1/platform/tenants/{id}/deactivate   → 204  (tutte le X-Api-Key del tenant smettono di funzionare)
+POST /api/v1/platform/tenants/{id}/reactivate   → 204
+```
+
+#### Gestione API key del tenant
+
+```
+GET    /api/v1/platform/tenants/{id}/api-keys
+// → elenco chiavi (solo prefisso + metadati, mai il segreto)
+
+POST   /api/v1/platform/tenants/{id}/api-keys
+// → 201 con la chiave in chiaro (una sola volta)
+
+DELETE /api/v1/platform/tenants/{id}/api-keys/{keyId}
+// → 204 (effetto immediato, rimossa dalla cache)
+```
+
+#### Resend email attivazione Owner
+
+```
+POST /api/v1/platform/tenants/{id}/owner/resend-activation
+// → 204  (genera nuovo token 72h e re-accoda l'email di attivazione)
+```
+
+> Usare se l'Owner non ha trovato l'email originale o se il link è scaduto.
+
+---
+
 ## 3. Onboarding di un nuovo sito (tenant)
 
 Quando un nuovo sito cliente deve collegarsi:
@@ -343,9 +469,7 @@ Quando un nuovo sito cliente deve collegarsi:
 **Progetto:** `tools/WebAgency_BookingSystem.TenantProvisioning`
 
 ### Perché esiste
-Non c'è una Admin UI per creare un tenant da zero, e la creazione iniziale richiede operazioni che **non**
-sono esposte via API per sicurezza: generazione della API key, creazione dell'utente Owner con password,
-inserimento atomico di tutta la configurazione. La CLI è lo strumento di **bootstrap** di un nuovo tenant.
+La CLI è lo strumento di **bootstrap** alternativo: esegue la stessa logica dell'API Platform (`ITenantProvisioningService` condiviso) ma in modalità locale, utile per automazioni o ambienti senza accesso rete. Con l'API Platform (`POST /api/v1/platform/tenants`) è ora possibile creare tenant via HTTP senza CLI né accesso diretto al DB — la CLI resta come fallback/automazione.
 
 ### Quando usarla
 - **Sempre** alla creazione di un nuovo tenant (onboarding di un nuovo sito).
@@ -408,9 +532,10 @@ dotnet run --project tools/WebAgency_BookingSystem.TenantProvisioning -- \
   `Cors__AllowedOrigins__0=…`. La porta è iniettata via `PORT`.
   Ricorda di applicare **tutte le migration** (incl. `AddEmailOutbox`, `AddStaffTimeOff`, `AddBookingItems`,
   `AddReminderFields`, `AddReminderScanIndex`, `AddUserLockout`, `MakeEmailGlobalAndAddSecurityFields`,
-  `AddUserSecurityTokens`) al deploy. Imposta anche `PUBLIC_BASE_URL=https://<servizio>.railway.app` (usata
+  `AddUserSecurityTokens`, `AddPlatformAdmin`) al deploy. Imposta anche `PUBLIC_BASE_URL=https://<servizio>.railway.app` (usata
   nei link email di attivazione e reset password).
-  ⚠ **Smoke test obbligatorio al deploy V2.3**: verificare il round-trip login admin (fix JWT `MapInboundClaims=false` + `KeyId` stabile).
+  Per la Platform API: imposta `PLATFORM_SETUP_TOKEN` al primo avvio (break-glass), usalo per creare l'admin di piattaforma via `POST /platform/setup`, poi rimuovilo dall'env. Opzionale: `Jwt__PlatformAudience` (default `WebAgency_BookingSystem.Platform`).
+  ⚠ **Smoke test obbligatorio al deploy**: verificare il round-trip login admin (fix JWT `MapInboundClaims=false` + `KeyId` stabile) **e** setup platform → login platform → crea tenant → verifica API key + attivazione Owner.
 - **Sicurezza login admin (S3)**: 5 tentativi falliti consecutivi → blocco temporaneo (15 min) dell'utente.
 - **GDPR retention (S2)**: un job giornaliero **anonimizza** le PII delle prenotazioni oltre `Gdpr:RetentionDays`
   (default 365) e **purga** le email outbox inviate oltre `Gdpr:OutboxRetentionDays` (default 30).

@@ -1,6 +1,6 @@
 # Visione di Prodotto & Roadmap
 
-> Documento di contesto strategico. Chiarisce **per chi** è il prodotto, **cosa è dentro/fuori scope** (con il perché) e **cosa rimane da fare**. Serve a evitare che sessioni future ripropongano come "gap" cose escluse di proposito. Ultimo aggiornamento: **2026-06-18**.
+> Documento di contesto strategico. Chiarisce **per chi** è il prodotto, **cosa è dentro/fuori scope** (con il perché) e **cosa rimane da fare**. Serve a evitare che sessioni future ripropongano come "gap" cose escluse di proposito. Ultimo aggiornamento: **2026-06-18** (Agency Provisioning API completata).
 
 ## 1. Posizionamento — chi è il cliente
 
@@ -35,11 +35,16 @@ Il **cliente del prodotto è un'agenzia web**, non l'attività finale (barber, e
 Tre filoni **approvati**, da realizzare **prima del deploy** (il deploy è l'ultimo passo, §5).
 
 ### 4.1 Console agenzia (UI interna) + API di provisioning/gestione
+
+> **Backend COMPLETATO (2026-06-18).** L'API di provisioning/gestione è implementata e merge su `main`.
+
 Scelta: **console interna per l'agenzia** (non per il barber → coerente con l'approccio headless, è tooling dell'agenzia/dev). Comporta due pezzi:
-- **(Backend, in questo repo)** API di provisioning/gestione con **auth a livello agenzia** (master key o ruolo `agency-admin`): creare/elencare/disattivare tenant, gestire API key, far partire l'attivazione Owner — senza CLI né accesso DB.
-- **(Frontend, nuovo progetto separato)** l'app console che consuma quell'API.
+- **(Backend — FATTO)** API Platform (`/api/v1/platform/*`) con identità `PlatformAdmin` separata dai tenant: creare/elencare/disattivare tenant, gestire API key, resend attivazione Owner — senza CLI né accesso DB. Setup break-glass via `POST /platform/setup` (gated da `PLATFORM_SETUP_TOKEN`). Logica provisioning unificata in `ITenantProvisioningService` (CLI + API). Migration `AddPlatformAdmin`. 4 nuovi test integration.
+- **(Frontend, nuovo progetto separato — DA FARE)** l'app console che consuma quell'API.
 - **Unificazione possibile** con la "dashboard interna di osservabilità" (cross-tenant: log, volumi prenotazioni, stati) già prevista → **un'unica console agenzia** provisioning + osservabilità.
 - La **CLI** resta come fallback/automazione.
+
+**Follow-up rimandati (spec §9):** invito multi-admin per tenant, reset password platform via email, attivazione primo admin platform via email, `PATCH /platform/tenants/{id}` (edit tenant), audit completo per-sorgente (attore `platform-admin:{id}` nelle righe `audit_log`).
 
 ### 4.2 Osservabilità OPS — alerting fai-da-te
 Scelta: **alerting leggero su email/Telegram** (no APM esterno per ora). Comprende:

@@ -10,7 +10,7 @@
 > Build `dotnet build` verde (0 warning, analyzer + warnings-as-errors). 41 unit test verdi.
 > Tutti gli endpoint validati a runtime con Docker. Nessun bug trovato.
 
-**Fase attuale:** V1 + **V2 email** + **hardening PH-1..PH-5** + **V2.1 salone reale** + **V2.2 hardening perf/sicurezza** + **V2.3 onboarding Owner** (2026-06-16). **127 test verdi** (96 unit + 31 integration).
+**Fase attuale:** V1 + **V2 email** + **hardening PH-1..PH-5** + **V2.1 salone reale** + **V2.2 hardening perf/sicurezza** + **V2.3 onboarding Owner** (2026-06-16) + **Agency Provisioning API** (2026-06-18). **131 test verdi** (96 unit + 35 integration).
 
 **V2.2 — Hardening (2026-06-15):** Performance — batch query per disponibilità/booking "qualsiasi operatore" (P1/P2), reminder con finestra di scan ristretta + indice (P3), **paginazione** `GET /admin/bookings` (`page`/`pageSize`, `PagedResponse<T>`) (P4). Sicurezza — rate-limit dedicato sulla **creazione** prenotazioni per API key (`RateLimiting:BookingPerMinute`, default 10) (S1); **retention/erasure GDPR** (`DataRetentionJob`: anonimizza PII prenotazioni oltre `Gdpr:RetentionDays`=365, purga outbox inviate oltre `Gdpr:OutboxRetentionDays`=30) (S2); **lockout login admin** (5 tentativi → 15 min, campi `User.FailedAccessCount`/`LockoutEnd`) (S3); **rotazione/revoca API key** via `GET/POST/DELETE /admin/api-keys` (S4); **guard JWT** in produzione (S5). `DbContext` pooling escluso (R-24). 2 migration nuove (`AddReminderScanIndex`, `AddUserLockout`).
 
@@ -22,7 +22,9 @@
 
 **Hardening produzione (2026-06-15, PH-1..PH-5):** CORS per-tenant dinamico dai `siteUrl` (catalogo + refresh job); advisory lock **bloccante** con `lock_timeout` (no 409 spurio su `parallelSlots>1`); email outbox durevole; user-secrets dev; confronti **DST-corretti** (`TenantTime.ToInstant`). DbContext pooling NON adottato (motivato nel piano).
 
-**Prossimo task:** Railway deploy — applicare le 2 nuove migration V2.3 (`MakeEmailGlobalAndAddSecurityFields`, `AddUserSecurityTokens`) oltre alle precedenti; impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato; impostare `PUBLIC_BASE_URL` (es. `https://<servizio>.railway.app`); eseguire **smoke test login admin** (fix JWT `MapInboundClaims`/`KeyId`). Poi 8.7 (branding template). Dubbi/decisioni aperte in `Claude_Instructions/DUBBI_SESSIONE.md` (D-01…D-15).
+**Agency Provisioning API (2026-06-18):** Nuova identità di piattaforma `PlatformAdmin` (separata dai tenant, niente `TenantId`). Login `POST /api/v1/platform/auth/token`. Bootstrap break-glass via `POST /api/v1/platform/setup` (gated da env `PLATFORM_SETUP_TOKEN`). Endpoint completi per creare/elencare/disattivare tenant, gestire API key, resend attivazione Owner — nessuna CLI né accesso DB necessari. Logica provisioning unificata in `ITenantProvisioningService` (CLI + API). `TenantResolutionMiddleware` ora esclude `/api/v1/platform`. 1 migration nuova (`AddPlatformAdmin`). 4 nuovi test `PlatformFlowTests` (integration). Follow-up rimandati: invito multi-admin, reset platform via email, edit tenant, audit completo per-sorgente. Dettagli in `Claude_Instructions/DEVELOPMENT_PLAN.md` §Agency Provisioning.
+
+**Prossimo task:** Railway deploy — applicare le migration incl. `AddPlatformAdmin`; impostare `PLATFORM_SETUP_TOKEN` per il bootstrap admin piattaforma; impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato; impostare `PUBLIC_BASE_URL` (es. `https://<servizio>.railway.app`); eseguire **smoke test** (setup platform → login platform → crea tenant → verifica API key + attivazione Owner). Poi 8.7 (branding template). Dubbi/decisioni aperte in `Claude_Instructions/DUBBI_SESSIONE.md` (D-01…D-15).
 
 **Note runtime (da `Claude_Instructions/DOCKER_SESSION_TODO.md`):**
 - API porta **5022** (launchSettings.json profilo `http`)
@@ -258,6 +260,8 @@ In **produzione** non si usano né appsettings né user-secrets: solo **variabil
 | `PUBLIC_BASE_URL` | URL base assoluta dell'API, usata per costruire i link nelle email (attivazione, reset password) | `http://localhost:5022` |
 | `RATE_LIMIT_ACCOUNT_PER_MINUTE` | Richieste max/min per IP sulle rotte account+login (default: 10) | `10` |
 | `DB_AUTO_MIGRATE` | Applica le migration EF all'avvio dell'API (opt-in; default `false`). In Development è già `true` via `appsettings.Development.json`. In produzione lasciare `false` se più istanze girano in parallelo (preferire uno step di migrazione nella pipeline) | `true` |
+| `PLATFORM_SETUP_TOKEN` | Token segreto che abilita l'endpoint di bootstrap `POST /api/v1/platform/setup`. Se non configurato, l'endpoint risponde **404** (break-glass: da usare solo al primo avvio per creare o reimpostare l'admin di piattaforma) | `<token-segreto-random>` |
+| `Jwt__PlatformAudience` | Audience del JWT emesso per `PlatformAdmin` (default: `WebAgency_BookingSystem.Platform`). Deve differire dall'audience admin tenant per evitare token cross-use | `WebAgency_BookingSystem.Platform` |
 
 ## Logging
 
@@ -302,6 +306,34 @@ POST   /api/v1/admin/account/password             body: { currentPassword, newPa
 POST   /api/v1/admin/account/password/reset-request  body: { email }  → 202 (sempre, risposta neutra)
 GET    /api/v1/admin/account/password/reset?token=   → pagina HTML reset password
 POST   /api/v1/admin/account/password/reset       body: { token, newPassword }  → 204
+```
+
+### Platform (autenticazione: JWT PlatformAdmin — identità separata dai tenant)
+
+> L'identità `PlatformAdmin` **non appartiene ad alcun tenant** (`TenantId` = null). Il JWT è emesso con audience
+> dedicata (`Jwt:PlatformAudience`) e non è accettato sulle rotte admin tenant, e viceversa.
+> `TenantResolutionMiddleware` esclude automaticamente tutto `/api/v1/platform` (non usa `X-Api-Key`).
+
+```
+# Bootstrap/break-glass (anonimo, 404 se PLATFORM_SETUP_TOKEN non configurato)
+POST   /api/v1/platform/setup              body: { setupToken, email, password }  → crea-o-reimposta admin
+
+# Autenticazione (anonima)
+POST   /api/v1/platform/auth/token         body: { email, password }  → JWT PlatformAdmin
+
+# Account platform (JWT PlatformAdmin)
+POST   /api/v1/platform/account/password   body: { currentPassword, newPassword }  → 204
+
+# Gestione tenant (JWT PlatformAdmin)
+POST   /api/v1/platform/tenants            body: ProvisioningInput  → 201 + API key (una sola volta); 409 slug; 422 validazione
+GET    /api/v1/platform/tenants            ?page=&pageSize=  → paginato
+GET    /api/v1/platform/tenants/{id}
+POST   /api/v1/platform/tenants/{id}/deactivate
+POST   /api/v1/platform/tenants/{id}/reactivate
+GET    /api/v1/platform/tenants/{id}/api-keys
+POST   /api/v1/platform/tenants/{id}/api-keys      → 201 + chiave in chiaro (una sola volta)
+DELETE /api/v1/platform/tenants/{id}/api-keys/{keyId}   → 204
+POST   /api/v1/platform/tenants/{id}/owner/resend-activation  → 204 (re-accoda email attivazione)
 ```
 
 ## Riferimenti
