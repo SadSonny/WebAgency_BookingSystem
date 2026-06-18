@@ -41,9 +41,9 @@ internal sealed class PlatformAccountService : IPlatformAccountService
             return Error.NotFound("not_found", "Risorsa non trovata.");
         }
 
-        // WHY: confronto a tempo costante per non rivelare il token via timing attack (lunghezza/prefisso).
-        // FixedTimeEquals richiede array della stessa lunghezza; se differiscono il metodo restituisce false
-        // senza accorciare il confronto, preservando la protezione.
+        // WHY: confronto a tempo costante per non rivelare il token, carattere per carattere, via timing.
+        // Nota: FixedTimeEquals ritorna false IMMEDIATAMENTE se le lunghezze differiscono — quindi NON è
+        // costante sulla lunghezza; accettabile qui perché la lunghezza del token di env non è un segreto.
         byte[] provided = System.Text.Encoding.UTF8.GetBytes(request.SetupToken ?? string.Empty);
         byte[] expected = System.Text.Encoding.UTF8.GetBytes(_setupToken);
         if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(provided, expected))

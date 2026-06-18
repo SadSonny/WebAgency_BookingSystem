@@ -333,7 +333,7 @@ POST   /api/v1/platform/tenants/{id}/reactivate
 GET    /api/v1/platform/tenants/{id}/api-keys
 POST   /api/v1/platform/tenants/{id}/api-keys      → 201 + chiave in chiaro (una sola volta)
 DELETE /api/v1/platform/tenants/{id}/api-keys/{keyId}   → 204
-POST   /api/v1/platform/tenants/{id}/owner/resend-activation  → 204 (re-accoda email attivazione)
+POST   /api/v1/platform/tenants/{id}/owner/resend-activation  → 202 (re-accoda email attivazione)
 ```
 
 ## Riferimenti

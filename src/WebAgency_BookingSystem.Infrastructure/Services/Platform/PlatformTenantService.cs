@@ -156,6 +156,8 @@ internal sealed class PlatformTenantService : IPlatformTenantService
 
         key.Active = false;
         await _db.SaveChangesAsync(ct);
+        // WHY: evacuiamo la cache DOPO il commit; se il save fallisce la chiave resta attiva e la cache coerente.
+        // Stesso pattern di AdminApiKeyManager.RevokeAsync (chiave "apikey:{hash}").
         _cache.Remove($"apikey:{key.KeyHash}");
 
         return Result.Success();

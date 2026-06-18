@@ -6,13 +6,15 @@ using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Core.Dtos;
 using WebAgency_BookingSystem.Core.Dtos.Admin;
 
+using WebAgency_BookingSystem.Infrastructure.Auth;
+
 namespace WebAgency_BookingSystem.Api.Endpoints.Admin;
 
 internal static class AdminApiKeyEndpoints
 {
     public static IEndpointRouteBuilder MapAdminApiKeyEndpoints(this IEndpointRouteBuilder app)
     {
-        RouteGroupBuilder group = app.MapGroup("/api/v1/admin/api-keys").WithTags("Admin").RequireAuthorization();
+        RouteGroupBuilder group = app.MapGroup("/api/v1/admin/api-keys").WithTags("Admin").RequireAuthorization(AdminClaims.AdminPolicy);
 
         group.MapGet("", async (IAdminApiKeyManager keys, CancellationToken ct) =>
         {

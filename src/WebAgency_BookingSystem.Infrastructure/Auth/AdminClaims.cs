@@ -19,4 +19,7 @@ public static class AdminClaims
 
     /// <summary>Nome della policy di autorizzazione per le rotte /platform.</summary>
     public const string PlatformPolicy = "PlatformAdmin";
+
+    /// <summary>Nome della policy di autorizzazione per le rotte /admin (richiede l'audience tenant).</summary>
+    public const string AdminPolicy = "Admin";
 }

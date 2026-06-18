@@ -194,9 +194,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddAuthorization(options =>
+{
+    // WHY: la validazione JWT accetta ENTRAMBE le audience (tenant + platform). Le policy le separano in modo
+    // ESPLICITO: le rotte /platform richiedono ruolo+audience platform; le rotte /admin richiedono l'audience
+    // tenant. Così un token platform è rifiutato (403) sulle rotte /admin per policy, non per effetto collaterale.
     options.AddPolicy(AdminClaims.PlatformPolicy, p => p
         .RequireRole(AdminClaims.PlatformRole)
-        .RequireClaim("aud", jwtSettings.PlatformAudience)));
+        .RequireClaim("aud", jwtSettings.PlatformAudience));
+    options.AddPolicy(AdminClaims.AdminPolicy, p => p
+        .RequireAuthenticatedUser()
+        .RequireClaim("aud", jwtSettings.Audience));
+});
 
 // ── Validazione (FluentValidation) ────────────────────────────────────────────
 // I validator degli endpoint pubblici e admin vivono in questo assembly.

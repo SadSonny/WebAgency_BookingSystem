@@ -9,6 +9,8 @@ using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Core.Dtos;
 using WebAgency_BookingSystem.Core.Dtos.Admin;
 
+using WebAgency_BookingSystem.Infrastructure.Auth;
+
 namespace WebAgency_BookingSystem.Api.Endpoints.Admin;
 
 internal static class AdminAccountEndpoints
@@ -117,7 +119,7 @@ internal static class AdminAccountEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .Produces<ErrorResponse>(StatusCodes.Status422UnprocessableEntity)
             .Produces<ErrorResponse>(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization()
+            .RequireAuthorization(AdminClaims.AdminPolicy)
             .RequireRateLimiting(RateLimitingPolicies.AccountSecurity);
 
         return app;

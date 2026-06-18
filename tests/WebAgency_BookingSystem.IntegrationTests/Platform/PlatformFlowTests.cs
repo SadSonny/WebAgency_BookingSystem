@@ -46,6 +46,27 @@ public class PlatformFlowTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task PlatformJwt_IsRejected_OnAdminRoute()
+    {
+        // WHY: usa un admin platform usa-e-getta (creato via setup) per non dipendere dalla cache stamp
+        // condivisa del factory; un nuovo admin parte con cache vuota → OnTokenValidated legge lo stamp fresco.
+        var c = Fixture.Factory.CreateClient();
+        string email = $"plat-{Guid.NewGuid():N}@test.it";
+        var setup = await c.PostAsJsonAsync("/api/v1/platform/setup",
+            new { setupToken = "test-setup-token", email, password = "ThrowawayPlat123!" });
+        setup.EnsureSuccessStatusCode();
+
+        var login = await c.PostAsJsonAsync("/api/v1/platform/auth/token",
+            new { email, password = "ThrowawayPlat123!" });
+        var token = (await login.Content.ReadFromJsonAsync<TokenDto>())!.Token;
+        c.DefaultRequestHeaders.Authorization = new("Bearer", token);
+
+        // Un token platform NON deve accedere a una rotta /admin: la policy AdminPolicy (audience tenant) → 403.
+        var resp = await c.GetAsync("/api/v1/admin/api-keys");
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
     public async Task CreateTenant_ThenListAndGet()
     {
         var c = Fixture.Factory.CreateClient();

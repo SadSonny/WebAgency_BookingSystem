@@ -36,7 +36,7 @@ Tre filoni **approvati**, da realizzare **prima del deploy** (il deploy è l'ult
 
 ### 4.1 Console agenzia (UI interna) + API di provisioning/gestione
 
-> **Backend COMPLETATO (2026-06-18).** L'API di provisioning/gestione è implementata e merge su `main`.
+> **Backend COMPLETATO (2026-06-18).** L'API di provisioning/gestione è implementata sul branch `AutoDev` (non ancora mergiata su main).
 
 Scelta: **console interna per l'agenzia** (non per il barber → coerente con l'approccio headless, è tooling dell'agenzia/dev). Comporta due pezzi:
 - **(Backend — FATTO)** API Platform (`/api/v1/platform/*`) con identità `PlatformAdmin` separata dai tenant: creare/elencare/disattivare tenant, gestire API key, resend attivazione Owner — senza CLI né accesso DB. Setup break-glass via `POST /platform/setup` (gated da `PLATFORM_SETUP_TOKEN`). Logica provisioning unificata in `ITenantProvisioningService` (CLI + API). Migration `AddPlatformAdmin`. 4 nuovi test integration.

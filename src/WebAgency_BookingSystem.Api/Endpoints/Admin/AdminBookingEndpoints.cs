@@ -6,6 +6,7 @@ using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Core.Dtos;
 using WebAgency_BookingSystem.Core.Dtos.Admin;
 using WebAgency_BookingSystem.Core.Enums;
+using WebAgency_BookingSystem.Infrastructure.Auth;
 
 namespace WebAgency_BookingSystem.Api.Endpoints.Admin;
 
@@ -13,7 +14,7 @@ internal static class AdminBookingEndpoints
 {
     public static IEndpointRouteBuilder MapAdminBookingEndpoints(this IEndpointRouteBuilder app)
     {
-        RouteGroupBuilder group = app.MapGroup("/api/v1/admin/bookings").WithTags("Admin").RequireAuthorization();
+        RouteGroupBuilder group = app.MapGroup("/api/v1/admin/bookings").WithTags("Admin").RequireAuthorization(AdminClaims.AdminPolicy);
 
         group.MapGet("", async (
             DateOnly? dateFrom, DateOnly? dateTo, Guid? staffId, Guid? serviceId, string? status,
