@@ -19,6 +19,7 @@ using Serilog;
 using Serilog.Context;
 using WebAgency_BookingSystem.Api.Endpoints;
 using WebAgency_BookingSystem.Api.Endpoints.Admin;
+using WebAgency_BookingSystem.Api.Endpoints.Platform;
 using WebAgency_BookingSystem.Api.Http;
 using WebAgency_BookingSystem.Api.Logging;
 using WebAgency_BookingSystem.Api.Middleware;
@@ -151,7 +152,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuer = true,
             ValidIssuer = jwtSettings.Issuer,
             ValidateAudience = true,
-            ValidAudience = jwtSettings.Audience,
+            ValidAudiences = [jwtSettings.Audience, jwtSettings.PlatformAudience],
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             // WHY: stesso KeyId usato in generazione (JwtTokenGenerator) → il validatore risolve la chiave per
@@ -176,21 +177,26 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 // WHY (SecurityStamp): invalida i JWT emessi prima di un cambio password. Confronto cache-first.
                 string? sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
                 string? stampClaim = context.Principal?.FindFirst(AdminClaims.SecurityStamp)?.Value;
-                if (!Guid.TryParse(sub, out Guid userId) || !Guid.TryParse(stampClaim, out Guid stamp))
+                string? role = context.Principal?.FindFirst(ClaimTypes.Role)?.Value;
+                if (!Guid.TryParse(sub, out Guid id) || !Guid.TryParse(stampClaim, out Guid stamp))
                 {
                     context.Fail("Token privo dei claim richiesti.");
                     return;
                 }
 
-                var stamps = context.HttpContext.RequestServices.GetRequiredService<IUserSecurityStampService>();
-                if (!await stamps.IsCurrentAsync(userId, stamp, context.HttpContext.RequestAborted))
-                {
-                    context.Fail("Sessione non più valida.");
-                }
+                // WHY: token platform e tenant hanno store di stamp diversi; discriminare sul ruolo è obbligatorio,
+                // altrimenti un token valido verrebbe rifiutato cercando l'id nello store sbagliato.
+                bool ok = role == AdminClaims.PlatformRole
+                    ? await context.HttpContext.RequestServices.GetRequiredService<IPlatformSecurityStampService>().IsCurrentAsync(id, stamp, context.HttpContext.RequestAborted)
+                    : await context.HttpContext.RequestServices.GetRequiredService<IUserSecurityStampService>().IsCurrentAsync(id, stamp, context.HttpContext.RequestAborted);
+                if (!ok) context.Fail("Sessione non più valida.");
             },
         };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+    options.AddPolicy(AdminClaims.PlatformPolicy, p => p
+        .RequireRole(AdminClaims.PlatformRole)
+        .RequireClaim("aud", jwtSettings.PlatformAudience)));
 
 // ── Validazione (FluentValidation) ────────────────────────────────────────────
 // I validator degli endpoint pubblici e admin vivono in questo assembly.
@@ -376,6 +382,7 @@ app.UseMiddleware<AdminContextMiddleware>();
 // ── Endpoint ──────────────────────────────────────────────────────────────────
 app.MapPublicEndpoints();   // 5.1-5.8 (API key)
 app.MapAdminEndpoints();    // 6.x (JWT)
+app.MapPlatformEndpoints(); // /platform (JWT platform)
 
 app.Run();
 

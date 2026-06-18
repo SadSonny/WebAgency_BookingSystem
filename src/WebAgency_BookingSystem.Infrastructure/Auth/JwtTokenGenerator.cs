@@ -48,4 +48,34 @@ internal sealed class JwtTokenGenerator : IJwtTokenGenerator
         string token = new JsonWebTokenHandler().CreateToken(descriptor);
         return (token, expiresAt);
     }
+
+    public (string Token, DateTimeOffset ExpiresAt) GeneratePlatform(Guid platformAdminId, Guid securityStamp)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset expiresAt = now.AddHours(_settings.ExpiryHours);
+
+        // WHY: stesso KeyId stabile dei token tenant → il validatore risolve la chiave per "kid" senza passare dal
+        // ConfigurationManager vuoto (IDX10517 su alcune versioni di Microsoft.IdentityModel). Riusa il medesimo
+        // segreto: tenant e platform si distinguono per AUDIENCE e ruolo, non per chiave di firma.
+        var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret)) { KeyId = JwtSettings.SigningKeyId };
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity(
+            [
+                new Claim(JwtRegisteredClaimNames.Sub, platformAdminId.ToString()),
+                new Claim(ClaimTypes.Role, AdminClaims.PlatformRole),
+                new Claim(AdminClaims.SecurityStamp, securityStamp.ToString()),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            ]),
+            Issuer = _settings.Issuer,
+            Audience = _settings.PlatformAudience,
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expiresAt.UtcDateTime,
+            SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256),
+        };
+
+        string token = new JsonWebTokenHandler().CreateToken(descriptor);
+        return (token, expiresAt);
+    }
 }

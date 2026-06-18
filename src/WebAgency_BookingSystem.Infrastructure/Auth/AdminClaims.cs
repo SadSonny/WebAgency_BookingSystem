@@ -13,4 +13,10 @@ public static class AdminClaims
 
     /// <summary>Claim con la SecurityStamp dell'utente: un cambio password ne invalida i JWT precedenti.</summary>
     public const string SecurityStamp = "security_stamp";
+
+    /// <summary>Valore del claim ruolo per gli admin di piattaforma.</summary>
+    public const string PlatformRole = "PlatformAdmin";
+
+    /// <summary>Nome della policy di autorizzazione per le rotte /platform.</summary>
+    public const string PlatformPolicy = "PlatformAdmin";
 }

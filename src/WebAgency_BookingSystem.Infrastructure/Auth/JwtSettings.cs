@@ -9,7 +9,7 @@ namespace WebAgency_BookingSystem.Infrastructure.Auth;
 /// <summary>
 /// Parametri di firma e validità dei token JWT admin.
 /// </summary>
-public sealed record JwtSettings(string Secret, string Issuer, string Audience, int ExpiryHours)
+public sealed record JwtSettings(string Secret, string Issuer, string Audience, int ExpiryHours, string PlatformAudience)
 {
     private const int MinSecretLength = 32;
 
@@ -32,11 +32,12 @@ public sealed record JwtSettings(string Secret, string Issuer, string Audience, 
 
         string issuer = configuration["Jwt:Issuer"] ?? "WebAgency_BookingSystem";
         string audience = configuration["Jwt:Audience"] ?? "WebAgency_BookingSystem.Admin";
+        string platformAudience = configuration["Jwt:PlatformAudience"] ?? "WebAgency_BookingSystem.Platform";
         int expiryHours = ParseInt(configuration["JWT_EXPIRY_HOURS"])
             ?? ParseInt(configuration["Jwt:ExpiryHours"])
             ?? 8;
 
-        return new JwtSettings(secret, issuer, audience, expiryHours);
+        return new JwtSettings(secret, issuer, audience, expiryHours, platformAudience);
     }
 
     private static int? ParseInt(string? value) =>

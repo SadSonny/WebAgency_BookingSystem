@@ -63,6 +63,10 @@ public static class DependencyInjection
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
         services.AddScoped<IAdminAuthService, AdminAuthService>();
 
+        // Platform auth (agency-admin): validazione stamp + login su identità di piattaforma (store separato).
+        services.AddScoped<IPlatformSecurityStampService, PlatformSecurityStampService>();
+        services.AddScoped<IPlatformAuthService, PlatformAuthService>();
+
         // Account Owner (onboarding/credenziali): impostazioni, validazione stamp, servizio account.
         services.AddSingleton(AccountSettings.FromConfiguration(configuration));
         services.AddScoped<IUserSecurityStampService, UserSecurityStampService>();

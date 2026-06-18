@@ -15,4 +15,7 @@ public interface IJwtTokenGenerator
     /// Genera un JWT con i claim dell'utente admin e restituisce il token e il suo istante di scadenza (UTC).
     /// </summary>
     (string Token, DateTimeOffset ExpiresAt) Generate(Guid userId, Guid tenantId, UserRole role, Guid securityStamp);
+
+    /// <summary>Genera un JWT di piattaforma (ruolo PlatformAdmin, audience platform, SENZA tenant_id).</summary>
+    (string Token, DateTimeOffset ExpiresAt) GeneratePlatform(Guid platformAdminId, Guid securityStamp);
 }
