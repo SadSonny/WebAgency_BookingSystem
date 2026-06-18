@@ -87,6 +87,9 @@ public static class DependencyInjection
         // Provisioning condiviso (CLI + API platform): unica fonte di verità per la creazione tenant.
         services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
 
+        // Platform tenant management: crea/lista/dettaglio cross-tenant via API platform.
+        services.AddScoped<IPlatformTenantService, PlatformTenantService>();
+
         // Email (V2 + PH-3): outbox transazionale. L'accodamento (IEmailOutbox) partecipa alla transazione
         // del booking; il dispatcher in background invia col trasporto per-ambiente (AD-10) con retry/backoff.
         AddEmail(services, configuration);

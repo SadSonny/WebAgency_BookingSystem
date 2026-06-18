@@ -7,6 +7,7 @@ internal static class PlatformEndpoints
     {
         app.MapPlatformAuthEndpoints();
         app.MapPlatformAccountEndpoints();
+        app.MapPlatformTenantEndpoints();
         return app;
     }
 }
