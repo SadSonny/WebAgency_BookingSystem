@@ -17,6 +17,7 @@ using WebAgency_BookingSystem.Infrastructure.Persistence.Interceptors;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Repositories;
 using WebAgency_BookingSystem.Infrastructure.Services.Admin;
 using WebAgency_BookingSystem.Infrastructure.Services;
+using WebAgency_BookingSystem.Infrastructure.Services.Platform;
 using WebAgency_BookingSystem.Infrastructure.Services.Provisioning;
 using WebAgency_BookingSystem.Infrastructure.Tenancy;
 
@@ -66,6 +67,7 @@ public static class DependencyInjection
         // Platform auth (agency-admin): validazione stamp + login su identità di piattaforma (store separato).
         services.AddScoped<IPlatformSecurityStampService, PlatformSecurityStampService>();
         services.AddScoped<IPlatformAuthService, PlatformAuthService>();
+        services.AddScoped<IPlatformAccountService, PlatformAccountService>();
 
         // Account Owner (onboarding/credenziali): impostazioni, validazione stamp, servizio account.
         services.AddSingleton(AccountSettings.FromConfiguration(configuration));

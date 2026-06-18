@@ -6,6 +6,7 @@ internal static class PlatformEndpoints
     public static IEndpointRouteBuilder MapPlatformEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPlatformAuthEndpoints();
+        app.MapPlatformAccountEndpoints();
         return app;
     }
 }
