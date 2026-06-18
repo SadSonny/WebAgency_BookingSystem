@@ -1,16 +1,18 @@
 // [INTENT]: Entry point della CLI di provisioning tenant. Legge e valida un file JSON, costruisce il layer
-// Infrastructure (DbContext + interceptor + outbox), esegue il provisioning in transazione e stampa l'output
-// con i segreti generati (API key) da mostrare UNA SOLA VOLTA. L'Owner riceve un link di attivazione via email
-// (accodato nell'outbox) e imposta la password autonomamente — nessuna password viene generata qui.
+// Infrastructure (DbContext + interceptor + outbox) tramite DI, risolve ITenantProvisioningService e
+// esegue il provisioning in transazione, quindi stampa l'output con i segreti generati (API key) da
+// mostrare UNA SOLA VOLTA. L'Owner riceve un link di attivazione via email (accodato nell'outbox) e
+// imposta la password autonomamente — nessuna password viene generata qui.
 // Codici di uscita: 0 successo, 1 errore di runtime (DB/provisioning), 2 errore di input (argomenti/file/validazione).
 
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using WebAgency_BookingSystem.Core.Abstractions.Services;
+using WebAgency_BookingSystem.Core.Dtos.Provisioning;
+using WebAgency_BookingSystem.Core.Provisioning;
 using WebAgency_BookingSystem.Infrastructure;
-using WebAgency_BookingSystem.Infrastructure.Persistence;
-using WebAgency_BookingSystem.TenantProvisioning;
 
 return await Run(args);
 
@@ -78,7 +80,6 @@ static async Task<int> Run(string[] args)
     {
         using IHost host = BuildHost(resolvedConnection);
         using IServiceScope scope = host.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<BookingSystemDbContext>();
 
         Console.WriteLine("=== PROVISIONING TENANT ===");
         Console.WriteLine($"Slug: {input.Slug}");
@@ -86,18 +87,16 @@ static async Task<int> Run(string[] args)
         Console.WriteLine();
         Console.WriteLine("✓ Validazione input completata");
 
-        var outbox = scope.ServiceProvider.GetRequiredService<WebAgency_BookingSystem.Infrastructure.Email.IEmailOutbox>();
-        var accountSettings = scope.ServiceProvider.GetRequiredService<WebAgency_BookingSystem.Infrastructure.Auth.AccountSettings>();
-        var provisioner = new TenantProvisioner(db, outbox, accountSettings);
-        ProvisioningResult result = await provisioner.CreateAsync(input, CancellationToken.None);
+        var provisioning = scope.ServiceProvider.GetRequiredService<ITenantProvisioningService>();
+        var result = await provisioning.CreateAsync(input, CancellationToken.None);
+        if (result.IsFailure)
+        {
+            Console.Error.WriteLine($"Provisioning interrotto: {result.Error.Message}");
+            return 1;
+        }
 
-        PrintResult(result);
+        PrintResult(result.Value);
         return 0;
-    }
-    catch (ProvisioningException ex)
-    {
-        Console.Error.WriteLine($"Provisioning interrotto: {ex.Message}");
-        return 1;
     }
     catch (Exception ex)
     {
@@ -145,7 +144,7 @@ static (string? Input, string? Connection, bool Update) ParseArgs(string[] args)
     return (input, connection, update);
 }
 
-static void PrintResult(ProvisioningResult result)
+static void PrintResult(ProvisioningOutput result)
 {
     Console.WriteLine($"✓ Tenant creato (id: {result.TenantId})");
     Console.WriteLine($"✓ Servizi creati: {result.ServiceCount}");
@@ -159,7 +158,7 @@ static void PrintResult(ProvisioningResult result)
     Console.WriteLine($"Prefisso: {result.KeyPrefix}");
     Console.WriteLine();
     Console.WriteLine("=== ACCOUNT ADMIN (Owner) ===");
-    Console.WriteLine($"Email:    {result.AdminEmail}");
+    Console.WriteLine($"Email:    {result.OwnerEmail}");
     Console.WriteLine("Attivazione: email con link inviata all'Owner (coda outbox).");
     Console.WriteLine("L'Owner imposta la password dal link; nessuna password viene generata qui.");
     Console.WriteLine();

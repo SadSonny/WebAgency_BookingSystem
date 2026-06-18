@@ -17,6 +17,7 @@ using WebAgency_BookingSystem.Infrastructure.Persistence.Interceptors;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Repositories;
 using WebAgency_BookingSystem.Infrastructure.Services.Admin;
 using WebAgency_BookingSystem.Infrastructure.Services;
+using WebAgency_BookingSystem.Infrastructure.Services.Provisioning;
 using WebAgency_BookingSystem.Infrastructure.Tenancy;
 
 namespace WebAgency_BookingSystem.Infrastructure;
@@ -75,6 +76,9 @@ public static class DependencyInjection
 
         services.AddScoped<IAvailabilityService, AvailabilityService>();
         services.AddScoped<IBookingService, BookingService>();
+
+        // Provisioning condiviso (CLI + API platform): unica fonte di verità per la creazione tenant.
+        services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
 
         // Email (V2 + PH-3): outbox transazionale. L'accodamento (IEmailOutbox) partecipa alla transazione
         // del booking; il dispatcher in background invia col trasporto per-ambiente (AD-10) con retry/backoff.

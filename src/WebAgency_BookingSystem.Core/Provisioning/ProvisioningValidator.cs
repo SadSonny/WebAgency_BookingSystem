@@ -1,17 +1,22 @@
-// [INTENT]: Validazione del file di provisioning (step 7.2). Raccoglie TUTTI gli errori e li restituisce in
-// blocco con messaggi chiari, così l'operatore corregge il file in una sola passata invece di scoprire un
-// errore alla volta. Controlla campi obbligatori, formati (orari/date), vincoli e i riferimenti incrociati
-// staff↔servizi.
+// [INTENT]: Validazione condivisa del file di provisioning (usata sia dalla CLI sia dall'API platform).
+// Raccoglie TUTTI gli errori e li restituisce in blocco con messaggi chiari, così l'operatore corregge
+// il file in una sola passata invece di scoprire un errore alla volta. Controlla campi obbligatori,
+// formati (orari/date), vincoli e i riferimenti incrociati staff↔servizi.
 
 using System.Globalization;
 
-namespace WebAgency_BookingSystem.TenantProvisioning;
+namespace WebAgency_BookingSystem.Core.Provisioning;
 
-internal static class ProvisioningValidator
+/// <summary>Validatore statico per l'input di provisioning tenant.</summary>
+public static class ProvisioningValidator
 {
     private static readonly string[] ValidBufferPositions = ["Before", "After", "Both"];
     private static readonly string[] ValidNotificationMethods = ["email", "none"];
 
+    /// <summary>
+    /// Valida l'input di provisioning e restituisce la lista di tutti gli errori trovati.
+    /// Se la lista è vuota, l'input è valido.
+    /// </summary>
     public static IReadOnlyList<string> Validate(ProvisioningInput input)
     {
         var errors = new List<string>();

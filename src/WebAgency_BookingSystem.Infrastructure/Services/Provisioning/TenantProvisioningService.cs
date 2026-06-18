@@ -1,40 +1,48 @@
-// [INTENT]: Esegue il provisioning di un tenant (step 7.3-7.6) in un'unica transazione (un solo SaveChanges):
-// crea tenant, orari, chiusure, servizi, staff e relative associazioni, genera l'API key (formato bk_live_,
-// salvata come hash SHA-256), crea l'utente Owner SENZA password (account non ancora attivato), genera un
-// token di attivazione (hash in DB) ed accoda l'email di attivazione tramite IEmailOutbox — tutto nella stessa
-// transazione. L'Owner imposta la password al primo accesso tramite il link. Solo modalità CREATE (no --update in V1).
+// [INTENT]: Implementazione condivisa del provisioning tenant (CLI + API platform). Crea tenant,
+// orari, chiusure, servizi, staff e relative associazioni, genera l'API key (formato bk_live_,
+// salvata come hash SHA-256), crea l'utente Owner SENZA password (account non ancora attivato),
+// genera un token di attivazione (hash in DB) e accoda l'email di attivazione tramite IEmailOutbox,
+// il tutto in un'unica transazione (un solo SaveChanges). L'Owner imposta la password al primo
+// accesso tramite il link. Fonte di verità unica; sostituisce il precedente TenantProvisioner interno alla CLI.
 
 using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using WebAgency_BookingSystem.Core.Abstractions.Services;
+using WebAgency_BookingSystem.Core.Common;
+using WebAgency_BookingSystem.Core.Dtos.Provisioning;
 using WebAgency_BookingSystem.Core.Entities;
 using WebAgency_BookingSystem.Core.Enums;
+using WebAgency_BookingSystem.Core.Provisioning;
 using WebAgency_BookingSystem.Core.Security;
 using WebAgency_BookingSystem.Infrastructure.Auth;
 using WebAgency_BookingSystem.Infrastructure.Email;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
 
-namespace WebAgency_BookingSystem.TenantProvisioning;
+namespace WebAgency_BookingSystem.Infrastructure.Services.Provisioning;
 
-internal sealed class TenantProvisioner
+/// <summary>Crea un tenant completo in transazione a partire da un input di provisioning.</summary>
+internal sealed class TenantProvisioningService : ITenantProvisioningService
 {
     private readonly BookingSystemDbContext _db;
     private readonly IEmailOutbox _outbox;
     private readonly AccountSettings _account;
 
-    public TenantProvisioner(BookingSystemDbContext db, IEmailOutbox outbox, AccountSettings account)
+    public TenantProvisioningService(BookingSystemDbContext db, IEmailOutbox outbox, AccountSettings account)
     {
         _db = db;
         _outbox = outbox;
         _account = account;
     }
 
-    public async Task<ProvisioningResult> CreateAsync(ProvisioningInput input, CancellationToken ct)
+    /// <inheritdoc/>
+    public async Task<Result<ProvisioningOutput>> CreateAsync(ProvisioningInput input, CancellationToken ct = default)
     {
-        if (await _db.Tenants.AnyAsync(t => t.Slug == input.Slug, ct))
+        // WHY: IgnoreQueryFilters è necessario per verificare slug tra tutti i tenant (il global query filter
+        // filtra per tenant_id corrente, ma qui non c'è un tenant corrente nel context).
+        if (await _db.Tenants.IgnoreQueryFilters().AnyAsync(t => t.Slug == input.Slug, ct))
         {
-            throw new ProvisioningException(
-                $"Esiste già un tenant con slug '{input.Slug}'. La modalità --update non è ancora supportata in V1.");
+            return Error.Conflict("slug_esistente", $"Esiste già un tenant con slug '{input.Slug}'.");
         }
 
         BookingRulesInput rules = input.BookingRules ?? new BookingRulesInput(null, null, null, null, null);
@@ -114,10 +122,11 @@ internal sealed class TenantProvisioner
             CreatedAt = nowUtc,
         });
 
-        // Un solo SaveChanges = una sola transazione atomica (con EnableRetryOnFailure la riprova è gestita da EF).
+        // WHY: Un solo SaveChanges = un'unica transazione atomica. Con EnableRetryOnFailure la riprova
+        // è gestita automaticamente da EF in caso di errori transitori del database.
         await _db.SaveChangesAsync(ct);
 
-        return new ProvisioningResult(
+        return new ProvisioningOutput(
             tenant.Id, tenant.Slug, apiKey, keyPrefix, input.OwnerEmail!,
             input.Services!.Count, staffCount, closures);
     }
@@ -255,31 +264,4 @@ internal sealed class TenantProvisioner
 
     private static DateOnly ToDate(string value) =>
         DateOnly.ParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture);
-}
-
-/// <summary>Risultato del provisioning: segreti generati (da mostrare una sola volta) e conteggi.</summary>
-internal sealed record ProvisioningResult(
-    Guid TenantId,
-    string Slug,
-    string ApiKey,
-    string KeyPrefix,
-    string AdminEmail,
-    int ServiceCount,
-    int StaffCount,
-    int ClosureCount);
-
-/// <summary>Errore di provisioning con messaggio destinato all'operatore.</summary>
-internal sealed class ProvisioningException : Exception
-{
-    public ProvisioningException(string message) : base(message)
-    {
-    }
-
-    public ProvisioningException() : base()
-    {
-    }
-
-    public ProvisioningException(string message, Exception innerException) : base(message, innerException)
-    {
-    }
 }
