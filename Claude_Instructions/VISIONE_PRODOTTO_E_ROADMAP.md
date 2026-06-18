@@ -30,11 +30,30 @@ Il **cliente del prodotto è un'agenzia web**, non l'attività finale (barber, e
 | **Multi-utente per tenant** | I ruoli sono già nello schema `users`; manca il **flusso di invito** di altri operatori come utenti admin. |
 | **Reporting / analytics** per il titolare | Prenotazioni nel tempo, no-show rate, ore di punta, ecc. Utile ma successivo. |
 
-## 4. Aperti — da discutere/approfondire
+## 4. Backlog deciso (pre-deploy) — scelte del 2026-06-18
 
-- **Onboarding self-serve (agency-facing).** Oggi il provisioning è una **CLI manuale** (JSON + connection string). Da valutare se l'agenzia vuole creare/gestire i tenant in modo programmatico (es. **API di provisioning** protetta da auth a livello agenzia) per automatizzare dal proprio tooling.
-- **Osservabilità OPS.** Logging applicativo su DB già fatto (`logs` + retention). Da valutare il minimo utile per "sapere quando si rompe in produzione": health check con verifica DB, alerting su errori/outbox fallita, uptime monitoring.
-- **Pacchetto legale / compliance GDPR.** Catena dei ruoli: il **barber/agenzia è titolare** del trattamento, la **piattaforma è responsabile (sub-responsabile)**. Da approfondire: DPA, elenco sub-responsabili (Brevo, Railway), informativa/consenso lato widget, export/cancellazione su richiesta (DSAR), data residency (Railway EU).
+Tre filoni **approvati**, da realizzare **prima del deploy** (il deploy è l'ultimo passo, §5).
+
+### 4.1 Console agenzia (UI interna) + API di provisioning/gestione
+Scelta: **console interna per l'agenzia** (non per il barber → coerente con l'approccio headless, è tooling dell'agenzia/dev). Comporta due pezzi:
+- **(Backend, in questo repo)** API di provisioning/gestione con **auth a livello agenzia** (master key o ruolo `agency-admin`): creare/elencare/disattivare tenant, gestire API key, far partire l'attivazione Owner — senza CLI né accesso DB.
+- **(Frontend, nuovo progetto separato)** l'app console che consuma quell'API.
+- **Unificazione possibile** con la "dashboard interna di osservabilità" (cross-tenant: log, volumi prenotazioni, stati) già prevista → **un'unica console agenzia** provisioning + osservabilità.
+- La **CLI** resta come fallback/automazione.
+
+### 4.2 Osservabilità OPS — alerting fai-da-te
+Scelta: **alerting leggero su email/Telegram** (no APM esterno per ora). Comprende:
+- **Health check reale** (verifica connettività DB) per la salute del deploy Railway.
+- **Alert su errori applicativi e outbox email fallita** verso email/Telegram.
+- **Uptime monitor esterno** gratuito (es. UptimeRobot), zero codice.
+- Si appoggia al logging su DB già esistente (`logs` + retention 90gg).
+
+### 4.3 Compliance GDPR — DSAR + consenso arricchito (codice) + doc
+Scelta: implementare lato codice **DSAR on-demand** e **consenso arricchito**, più documentazione.
+- **DSAR**: endpoint admin per **export** e **cancellazione on-demand** dei dati di uno specifico cliente (diritto di accesso/oblio), oltre all'anonimizzazione automatica già presente.
+- **Consenso arricchito**: oltre al booleano `gdprConsent`, registrare **timestamp** e **versione dell'informativa** (prova del consenso).
+- **Documentazione** (da bozzare): elenco **sub-responsabili** (Brevo = email/EU, Railway = hosting/EU), **data-flow**, retention. Il **DPA** agenzia↔piattaforma è legale (non codice).
+- Catena ruoli: **barber = titolare**, agenzia/piattaforma = **responsabile/sub-responsabile**.
 
 ## 5. Deploy — strategia
 
