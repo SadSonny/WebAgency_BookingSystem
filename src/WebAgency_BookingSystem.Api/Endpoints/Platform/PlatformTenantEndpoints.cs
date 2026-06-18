@@ -1,11 +1,14 @@
-// [INTENT]: Endpoint platform di gestione tenant (crea/lista/dettaglio). Protetti da policy PlatformAdmin.
+// [INTENT]: Endpoint platform di gestione tenant (crea/lista/dettaglio/attiva-disattiva + API key cross-tenant
+// + re-invio attivazione Owner). Protetti da policy PlatformAdmin.
 // Crea: valida col ProvisioningValidator (422) poi delega al service (409 su slug duplicato).
 // Lista: paginata (page/pageSize query param). Dettaglio: per Guid.
+// Deactivate: imposta Active=false ed evacua la cache delle API key del tenant.
 
 using WebAgency_BookingSystem.Api.Http;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
 using WebAgency_BookingSystem.Core.Common;
 using WebAgency_BookingSystem.Core.Dtos;
+using WebAgency_BookingSystem.Core.Dtos.Admin;
 using WebAgency_BookingSystem.Core.Dtos.Platform;
 using WebAgency_BookingSystem.Core.Dtos.Provisioning;
 using WebAgency_BookingSystem.Core.Provisioning;
@@ -63,6 +66,68 @@ internal static class PlatformTenantEndpoints
         .WithName("PlatformGetTenant")
         .WithSummary("Dettaglio tenant")
         .Produces<PlatformTenantSummary>(StatusCodes.Status200OK)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/deactivate", async (Guid id, IPlatformTenantService svc, CancellationToken ct) =>
+        {
+            Result r = await svc.SetActiveAsync(id, false, ct);
+            return r.IsSuccess ? Results.NoContent() : r.Error.ToErrorResult();
+        })
+        .WithName("PlatformDeactivateTenant")
+        .WithSummary("Disattiva tenant")
+        .WithDescription("Imposta Active=false ed evacua immediatamente la cache delle API key del tenant, così le richieste in ingresso smettono di risolverlo senza attendere la TTL.")
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/reactivate", async (Guid id, IPlatformTenantService svc, CancellationToken ct) =>
+        {
+            Result r = await svc.SetActiveAsync(id, true, ct);
+            return r.IsSuccess ? Results.NoContent() : r.Error.ToErrorResult();
+        })
+        .WithName("PlatformReactivateTenant")
+        .WithSummary("Riattiva tenant")
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id:guid}/api-keys", async (Guid id, IPlatformTenantService svc, CancellationToken ct) =>
+        {
+            Result<IReadOnlyList<ApiKeyResponse>> r = await svc.ListApiKeysAsync(id, ct);
+            return r.Match(list => Results.Ok(list));
+        })
+        .WithName("PlatformListTenantApiKeys")
+        .WithSummary("Elenca API key del tenant")
+        .Produces<IReadOnlyList<ApiKeyResponse>>(StatusCodes.Status200OK)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/api-keys", async (Guid id, CreateApiKeyRequest request, IPlatformTenantService svc, CancellationToken ct) =>
+        {
+            Result<CreateApiKeyResponse> r = await svc.CreateApiKeyAsync(id, request.Description, ct);
+            return r.IsSuccess ? Results.Json(r.Value, statusCode: StatusCodes.Status201Created) : r.Error.ToErrorResult();
+        })
+        .WithName("PlatformCreateTenantApiKey")
+        .WithSummary("Crea API key per il tenant")
+        .Produces<CreateApiKeyResponse>(StatusCodes.Status201Created)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+
+        group.MapDelete("/{id:guid}/api-keys/{keyId:guid}", async (Guid id, Guid keyId, IPlatformTenantService svc, CancellationToken ct) =>
+        {
+            Result r = await svc.RevokeApiKeyAsync(id, keyId, ct);
+            return r.IsSuccess ? Results.NoContent() : r.Error.ToErrorResult();
+        })
+        .WithName("PlatformRevokeTenantApiKey")
+        .WithSummary("Revoca API key del tenant")
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/owner/resend-activation", async (Guid id, IPlatformTenantService svc, CancellationToken ct) =>
+        {
+            Result r = await svc.ResendOwnerActivationAsync(id, ct);
+            return r.IsSuccess ? Results.Accepted() : r.Error.ToErrorResult();
+        })
+        .WithName("PlatformResendOwnerActivation")
+        .WithSummary("Re-invia attivazione Owner")
+        .WithDescription("Invalida i token di attivazione attivi dell'Owner, ne genera uno nuovo e accoda l'email di attivazione. Risponde 202 anche se l'email è solo accodata (invio asincrono via outbox).")
+        .Produces(StatusCodes.Status202Accepted)
         .Produces<ErrorResponse>(StatusCodes.Status404NotFound);
 
         return app;
