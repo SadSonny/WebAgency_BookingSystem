@@ -153,6 +153,10 @@ Body `{ setupToken, email, password }`. È un **upsert-per-email gated dall'oper
 ### 9.3 Attivazione del PRIMO admin via email (alternativa al setup endpoint)
 - Se in futuro si preferisce non usare il setup endpoint, si può bootstrappare il primo admin da env (`PLATFORM_ADMIN_EMAIL`) con email di attivazione (come valutato e non scelto ora). Mantenere il setup endpoint comunque gated.
 
+### 9.5 Audit completo delle azioni platform
+- Oggi la creazione tenant scrive `audit_log` con attore `"provisioning"` (servizio condiviso CLI+API). Rimandati: **attribuzione per-sorgente** (`platform-admin:{id}` quando creato via API) e **audit delle azioni** `tenant_deactivated`/`tenant_reactivated`/`apikey_created`/`apikey_revoked`/`owner_activation_resent`.
+- **Implementazione**: aggiungere un parametro `actor` a `ITenantProvisioningService.CreateAsync` (default `"provisioning"`); l'endpoint platform passa `platform-admin:{sub}`. Nei metodi mutativi di `PlatformTenantService` scrivere `AuditLog` con attore e `TenantId`. Nel frattempo le azioni restano tracciate dai **log applicativi su DB**.
+
 ### 9.4 Modifica dati tenant (edit post-provisioning)
 - **Endpoint**: `PATCH /platform/tenants/{id}` (JWT platform) per aggiornare i campi di **tenant**: `name`, `siteUrl`, `timezone`, e le regole di prenotazione (`MinAdvanceHours`, `MinCancellationHours`, `VisibleDaysAhead`, `StaffChoiceEnabled`, `NotificationMethod`, `ReminderHoursBefore`). NON tocca servizi/staff/orari (gestiti dall'Owner via Admin API).
 - **Note**: su modifica di `siteUrl`, il catalogo origini CORS per-tenant (PH-1) si riallinea al refresh successivo; valutare un'evacuazione immediata se serve effetto istantaneo. Validare `timezone` (IANA) e i vincoli delle regole come al provisioning.
