@@ -1,6 +1,7 @@
 // [INTENT]: Costanti e metodo di seed per i test di integrazione. Fissa GUIDs e chiave API per rendere
 // i test deterministici e indipendenti dall'ordine. SeedAsync inserisce un tenant completo (orari, servizi,
-// staff, chiave API) usato da tutta la suite senza essere ricreato tra i test.
+// staff, chiave API) usato da tutta la suite senza essere ricreato tra i test. Include anche il seed
+// dell'agency-admin (PlatformAdmin) per i test platform.
 
 using Microsoft.EntityFrameworkCore;
 using WebAgency_BookingSystem.Core.Entities;
@@ -34,6 +35,12 @@ public static class TestData
     public static readonly Guid OwnerUserId = new("40000000-0000-0000-0000-000000000001");
     public const string OwnerEmail = "owner@test.example.it";
     public const string OwnerPassword = "TestPassword123!";
+
+    // Agency-admin (PlatformAdmin) — usato dai test platform. Il test Setup_BreakGlass ripristina sempre
+    // la password al valore originale per non contaminare gli altri test.
+    public static readonly Guid PlatformAdminId = new("50000000-0000-0000-0000-000000000001");
+    public const string PlatformEmail = "agency@test.example.it";
+    public const string PlatformPassword = "PlatformPass123!";
 
     // Lunedì ≥ 7 giorni da oggi: giorno lavorativo, dentro i 30 visibili, ben oltre MinAdvanceHours=1h.
     public static DateOnly FutureMonday =>
@@ -151,6 +158,13 @@ public static class TestData
             });
         }
 
+        db.PlatformAdmins.Add(new PlatformAdmin
+        {
+            Id = PlatformAdminId, Email = PlatformEmail,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(PlatformPassword),
+            SecurityStamp = Guid.NewGuid(), Active = true, ActivatedAt = now, CreatedAt = now, UpdatedAt = now,
+        });
+
         await db.SaveChangesAsync();
     }
 
@@ -198,6 +212,18 @@ public static class TestData
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(OwnerPassword),
                 ActivatedAt = now, SecurityStamp = Guid.NewGuid(),
                 Role = UserRole.Owner, Active = true, CreatedAt = now, UpdatedAt = now,
+            });
+            changed = true;
+        }
+
+        if (!await db.PlatformAdmins.AnyAsync(p => p.Id == PlatformAdminId))
+        {
+            var now2 = DateTimeOffset.UtcNow;
+            db.PlatformAdmins.Add(new PlatformAdmin
+            {
+                Id = PlatformAdminId, Email = PlatformEmail,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(PlatformPassword),
+                SecurityStamp = Guid.NewGuid(), Active = true, ActivatedAt = now2, CreatedAt = now2, UpdatedAt = now2,
             });
             changed = true;
         }

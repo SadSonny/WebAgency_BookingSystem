@@ -32,6 +32,9 @@ public sealed class BookingSystemFactory : WebApplicationFactory<Program>
         // entrambi i percorsi, anziché solo nella config in-memory (che il path di validazione all'avvio può
         // non vedere ancora).
         Environment.SetEnvironmentVariable("JWT_SECRET", "integration-test-secret-key-32-chars-min!!");
+        // WHY: il setup endpoint è disabilitato (404) quando PLATFORM_SETUP_TOKEN non è configurato.
+        // Lo impostiamo come env var (letta prima della config in-memory) per abilitarlo nei test break-glass.
+        Environment.SetEnvironmentVariable("PLATFORM_SETUP_TOKEN", "test-setup-token");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -57,6 +60,8 @@ public sealed class BookingSystemFactory : WebApplicationFactory<Program>
                 // WHY: il sink dei log su DB non è oggetto dei test; lo disattiviamo per isolare la suite
                 // (niente scritture di log nel container né auto-create della tabella logs).
                 ["DatabaseLogging:Enabled"] = "false",
+                // WHY: abilita il setup endpoint (break-glass) nei test; senza questo la rotta restituisce 404.
+                ["PLATFORM_SETUP_TOKEN"] = "test-setup-token",
             });
         });
 

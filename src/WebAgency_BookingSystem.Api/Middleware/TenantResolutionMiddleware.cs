@@ -1,6 +1,7 @@
 // [INTENT]: Risolve il tenant corrente dall'header X-Api-Key e lo inietta nel contesto (ITenantContext +
 // HttpContext.Items), prerequisito per tutti gli endpoint tenant-scoped. 401 se la chiave manca, 403 se non
-// è valida o il tenant è disattivato. Esclude /health (no auth) e /admin (JWT futuro) e le rotte non /api/v1.
+// è valida o il tenant è disattivato. Esclude /health (no auth), /admin (JWT tenant) e /platform (JWT platform)
+// e le rotte non /api/v1.
 
 using Serilog.Context;
 using WebAgency_BookingSystem.Api.Http;
@@ -70,7 +71,8 @@ public sealed class TenantResolutionMiddleware
     }
 
     // WHY: la risoluzione si applica solo agli endpoint pubblici tenant-scoped. /health è una liveness probe
-    // senza auth; /admin userà JWT separato; tutto ciò che non è /api/v1 (es. /scalar, /openapi) è escluso.
+    // senza auth; /admin usa JWT tenant; /platform usa JWT agency-admin (nessuna X-Api-Key); tutto ciò che
+    // non è /api/v1 (es. /scalar, /openapi) è escluso.
     private static bool RequiresApiKey(PathString path)
     {
         if (!path.StartsWithSegments("/api/v1"))
@@ -78,7 +80,9 @@ public sealed class TenantResolutionMiddleware
             return false;
         }
 
-        if (path.StartsWithSegments("/api/v1/health") || path.StartsWithSegments("/api/v1/admin"))
+        if (path.StartsWithSegments("/api/v1/health") ||
+            path.StartsWithSegments("/api/v1/admin") ||
+            path.StartsWithSegments("/api/v1/platform"))
         {
             return false;
         }
