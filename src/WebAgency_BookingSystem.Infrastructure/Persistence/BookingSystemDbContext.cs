@@ -38,6 +38,7 @@ public sealed class BookingSystemDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<OutboxEmail> OutboxEmails => Set<OutboxEmail>();
     public DbSet<UserSecurityToken> UserSecurityTokens => Set<UserSecurityToken>();
+    public DbSet<PlatformAdmin> PlatformAdmins => Set<PlatformAdmin>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

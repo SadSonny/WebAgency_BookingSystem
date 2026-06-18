@@ -57,6 +57,7 @@ public static class DependencyInjection
         services.AddScoped<IStaffRepository, StaffRepository>();
         services.AddScoped<IBookingRepository, BookingRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IPlatformAdminRepository, PlatformAdminRepository>();
 
         // Admin auth (6.x): generazione/validazione JWT, login.
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
