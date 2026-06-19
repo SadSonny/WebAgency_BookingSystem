@@ -32,7 +32,7 @@ Pattern coerente con i `BackgroundService` esistenti (`EmailOutboxDispatcher`, `
 
 ```
 OpsAlertMonitorJob (BackgroundService, singleton)
-   │  ogni PollSeconds (default 300s):
+   │  ogni PollSeconds (default 60s):
    │   1) self-check DB:  db.Database.CanConnectAsync()
    │        ├─ transizione UP→DOWN  → channel.SendAsync(DbDown)
    │        └─ transizione DOWN→UP  → channel.SendAsync(DbRecovered)
@@ -87,7 +87,7 @@ Sezione `appsettings.json` `Ops:Alerting`:
 |---|---|---|---|
 | `Enabled` | `true` | — | Se `false`, il job non viene avviato. |
 | `Channel` | `LogOnly` | `OPS_ALERT_CHANNEL` | `Telegram` o `LogOnly`. Valore non riconosciuto, o `Telegram` senza credenziali → `LogOnly` con warning. |
-| `PollSeconds` | `300` | — | Intervallo di scansione. |
+| `PollSeconds` | `60` | — | Intervallo di scansione. La tabella `logs` resta piccola (retention 90gg + traffico singolo cliente, niente indice su `timestamp`), quindi lo scan ogni 60s è economico e dà alert quasi real-time. |
 | `MinLevel` | `Error` | — | Livello minimo dei log considerati (guida il filtro SQL; `Error` include `Fatal`). |
 | `Telegram:BotToken` | — | `OPS_ALERT_TELEGRAM_BOT_TOKEN` | **Segreto.** Dev: user-secrets; prod: env. |
 | `Telegram:ChatId` | — | `OPS_ALERT_TELEGRAM_CHAT_ID` | Id chat/canale destinatario. |
