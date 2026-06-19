@@ -32,11 +32,9 @@ prova del consenso. Tre parti coese:
 
 `AuditLog` ha una regola di progetto esplicita: **nessun dato personale del cliente nei log**
 ([AuditLog.cs:2-3]). Quindi l'audit DSAR **non** può contenere l'email in chiaro. Scelta:
-- Metadata audit = `{ "matched": N }` (export) / `{ "anonymized": N }` (erase) **+** `"subjectRef"` = **SHA-256 (hex) dell'email normalizzata**. L'hash è PII-minimizzato (non reversibile in pratica) ma permette di **correlare** più eventi sullo stesso soggetto senza esporre l'email. Il paper-trail legale "quale cliente, quando" resta presso il titolare (che ha l'email nella richiesta DSAR).
+- Metadata audit = `{ "matched": N }` (export) / `{ "anonymizedBookings": N, "purgedOutbox": M }` (erase) **+** `"subjectRef"` = **HMAC-SHA256 (hex) dell'email normalizzata**, con chiave = `Jwt:Secret` (segreto server già presente, min 32 char, mai esposto). **WHY HMAC e non SHA-256 semplice:** lo spazio delle email è enumerabile, quindi un hash non salato è reversibile per forza bruta; l'HMAC con un secret lato server non è reversibile da chi legge il DB, pur permettendo di **correlare** più eventi sullo stesso soggetto. Il paper-trail legale "quale cliente, quando" resta presso il titolare (che ha l'email nella richiesta DSAR).
 - `Action` = `customer_data_exported` | `customer_data_erased`; `Actor` = `owner`.
-
-> ⚠ **Punto da validare in review:** accettabile usare un hash dell'email come `subjectRef` nell'audit? In
-> alternativa si memorizza solo il conteggio (nessuna correlazione per-soggetto). Default proposto: con hash.
+- L'export è **sempre** audìto, anche quando non trova prenotazioni (l'accesso è comunque avvenuto; `matched: 0`).
 
 ## 3. Architettura
 
@@ -47,14 +45,15 @@ cross-tenant). Pattern endpoint identico agli altri admin (`RouteGroupBuilder` +
 ```
 GET  /api/v1/admin/gdpr/customer?email=...   → IGdprDsarService.ExportAsync(email)
    └─ query Bookings (tenant-scoped) WHERE lower(CustomerEmail)=lower(email)
-        ├─ vuoto → Result NotFound (404)
-        └─ trovato → audit "customer_data_exported" + 200 CustomerDataExport
+        audit "customer_data_exported" (sempre, anche con 0 risultati)
+        → 200 CustomerDataExport (lista eventualmente vuota, Count=0)   ← niente 404: l'accesso riesce sempre
 
 POST /api/v1/admin/gdpr/customer/erase  { email }  → IGdprDsarService.EraseAsync(email)
    └─ transazione:
-        count = ExecuteUpdate(anonimizza Bookings WHERE lower(email) match AND non già anonimizzate)
-        ├─ count==0 → rollback → Result NotFound (404)
-        └─ count>0 → audit "customer_data_erased" + commit → 200 { anonymized: count }
+        bookings = ExecuteUpdate(anonimizza Bookings WHERE lower(email) match AND non già anonimizzate)
+        outbox   = ExecuteDelete(OutboxEmails WHERE lower(ToEmail) match)   ← PII nell'HTML congelato
+        ├─ bookings==0 AND outbox==0 → rollback → Result NotFound (404)
+        └─ altrimenti → audit "customer_data_erased" + commit → 200 { anonymizedBookings, purgedOutbox }
 ```
 
 ## 4. Componenti (file)
@@ -65,9 +64,9 @@ POST /api/v1/admin/gdpr/customer/erase  { email }  → IGdprDsarService.EraseAsy
 | `CreateBookingRequest.cs` (modifica) | Core | + `string? GdprConsentVersion = null` (opzionale, in coda ai parametri record). |
 | `Dtos/Admin/CustomerDataExport.cs` | Core | `record CustomerDataExport(string Email, int Count, IReadOnlyList<BookingExportItem> Bookings)` + `record BookingExportItem(...)` (tutti i campi prenotazione + PII + consenso). |
 | `Dtos/Admin/EraseCustomerRequest.cs` | Core | `record EraseCustomerRequest(string Email)`. |
-| `Dtos/Admin/ErasureResult.cs` | Core | `record ErasureResult(int Anonymized)`. |
-| `Abstractions/Services/IGdprDsarService.cs` | Core | `ExportAsync(string email, ct)` → `Task<Result<CustomerDataExport>>`; `EraseAsync(string email, ct)` → `Task<Result<ErasureResult>>`. |
-| `Services/GdprDsarService.cs` | Infrastructure | Implementazione (vedi §3). Usa `BookingSystemDbContext` + `ITenantContext`. Riusa `DataRetentionService.AnonymizedMarker`. |
+| `Dtos/Admin/ErasureResult.cs` | Core | `record ErasureResult(int AnonymizedBookings, int PurgedOutbox)`. |
+| `Abstractions/Services/IGdprDsarService.cs` | Core | `ExportAsync(string email, ct)` → `Task<Result<CustomerDataExport>>` (sempre successo, lista eventualmente vuota); `EraseAsync(string email, ct)` → `Task<Result<ErasureResult>>` (NotFound se 0 bookings e 0 outbox). |
+| `Services/GdprDsarService.cs` | Infrastructure | Implementazione (vedi §3). Usa `BookingSystemDbContext` + `ITenantContext` + `IConfiguration` (chiave HMAC). Riusa `DataRetentionService.AnonymizedMarker`. Erase in transazione esplicita (bookings + outbox + audit). |
 | `Endpoints/Admin/AdminGdprEndpoints.cs` | Api | I due endpoint sotto `/api/v1/admin/gdpr`, metadati OpenAPI completi. |
 | `AdminEndpoints.cs` (modifica) | Api | + `app.MapAdminGdprEndpoints();`. |
 | `Validation/EraseCustomerRequestValidator.cs` | Api | email non vuota e formato plausibile. |
@@ -85,9 +84,14 @@ Ogni file con `// [INTENT]`; `// WHY:` sulle parti non ovvie (riuso marker, audi
 telefono/email→`""`, note→`null`). **WHY deroga:** gli expression-tree di EF `ExecuteUpdate` non si
 fattorizzano in un helper senza complicazioni; condividiamo la **costante** `DataRetentionService.AnonymizedMarker`
 (unica fonte del marker) e replichiamo i setter con commento di accoppiamento. Alternativa (helper generico)
-sconsigliata: YAGNI, più astrazione che valore. Filtro erase: `lower(CustomerEmail)==lower(email) AND
-CustomerName != AnonymizedMarker` (idempotenza: le già-anonimizzate non rientrano; inoltre dopo l'erase l'email
-è azzerata e non rimatcha).
+sconsigliata: YAGNI, più astrazione che valore. Filtro anonimizzazione bookings:
+`lower(CustomerEmail)==lower(email) AND CustomerName != AnonymizedMarker` (idempotenza: le già-anonimizzate non
+rientrano; inoltre dopo l'erase l'email è azzerata e non rimatcha).
+
+**Outbox:** nella stessa transazione, `ExecuteDeleteAsync` su `OutboxEmails WHERE lower(ToEmail)==lower(email)`
+(qualsiasi stato: Pending/Sent/Failed — l'HTML congelato contiene comunque la PII). È l'aggancio coerente con la
+purga automatica del `DataRetentionService`, ma immediato e mirato al singolo cliente. La transazione garantisce
+che bookings, outbox e audit siano atomici (no anonimizzazione senza audit, né viceversa).
 
 ## 6. Consenso arricchito (B)
 
@@ -99,13 +103,14 @@ CustomerName != AnonymizedMarker` (idempotenza: le già-anonimizzate non rientra
 
 Unit (xUnit, EF InMemory + `ITenantContext` fake, come `OutboxProcessorTests`):
 - **Export**: bookings del cliente restituiti con tutti i campi; conteggio corretto.
-- **Export isolamento tenant**: bookings di un altro tenant NON compaiono (fake tenant context su tenant A, dati di B → export vuoto/404).
-- **Export 404**: email senza prenotazioni → `Result` NotFound.
+- **Export isolamento tenant**: bookings di un altro tenant NON compaiono (fake tenant context su tenant A, dati di B → export con `Count=0`).
+- **Export vuoto = 200**: email senza prenotazioni → `Result` successo con lista vuota (NON 404), audit scritto con `matched: 0`.
 - **Export email case-insensitive**: `Mario@x.it` matcha `mario@x.it`.
-- **Erase**: anonimizza le righe del cliente, ritorna il conteggio, i campi PII risultano azzerati/marcati.
-- **Erase idempotente**: già-anonimizzate non ricontate; seconda erase → 0 → 404.
-- **Erase 404**: nessuna riga → NotFound, nessun audit.
-- **Audit**: export ed erase scrivono una riga `audit_log` con `Action` corretta e `subjectRef` = hash (no email in chiaro).
+- **Erase bookings**: anonimizza le righe del cliente, i campi PII risultano azzerati/marcati; `AnonymizedBookings` corretto.
+- **Erase outbox**: le `OutboxEmails` con `ToEmail` del cliente vengono eliminate; `PurgedOutbox` corretto.
+- **Erase idempotente**: già-anonimizzate + outbox già purgato → seconda erase → 0/0 → 404.
+- **Erase 404**: nessuna riga (bookings né outbox) → NotFound, nessun audit.
+- **Audit**: export ed erase scrivono una riga `audit_log` con `Action` corretta e `subjectRef` = HMAC (no email in chiaro nei metadata).
 - **Booking salva versione consenso**: `BookingService` persiste `GdprConsentVersion` dalla request (e resta `null` se omessa).
 
 > Nota: con EF InMemory `ExecuteUpdateAsync` è supportato in EF Core 10; se in test risultasse non valutabile,
