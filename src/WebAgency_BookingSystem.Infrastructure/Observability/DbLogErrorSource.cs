@@ -23,6 +23,13 @@ internal sealed class DbLogErrorSource : ILogErrorSource
     public async Task<IReadOnlyList<LogError>> GetSinceAsync(
         DateTimeOffset since, IReadOnlyList<string> levels, CancellationToken ct = default)
     {
+        // WHY: un insieme di livelli vuoto produrrebbe "= ANY('{}')", il cui handling Npgsql può variare; evitiamo la
+        // query del tutto (non c'è nulla da cercare).
+        if (levels.Count == 0)
+        {
+            return Array.Empty<LogError>();
+        }
+
         using IServiceScope scope = _scopeFactory.CreateScope();
         BookingSystemDbContext db = scope.ServiceProvider.GetRequiredService<BookingSystemDbContext>();
 
