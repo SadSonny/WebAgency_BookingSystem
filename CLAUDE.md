@@ -10,7 +10,7 @@
 > Build `dotnet build` verde (0 warning, analyzer + warnings-as-errors). 41 unit test verdi.
 > Tutti gli endpoint validati a runtime con Docker. Nessun bug trovato.
 
-**Fase attuale:** V1 + **V2 email** + **hardening PH-1..PH-5** + **V2.1 salone reale** + **V2.2 hardening perf/sicurezza** + **V2.3 onboarding Owner** (2026-06-16) + **Agency Provisioning API** (2026-06-18). **131 test verdi** (96 unit + 35 integration).
+**Fase attuale:** V1 + **V2 email** + **hardening PH-1..PH-5** + **V2.1 salone reale** + **V2.2 hardening perf/sicurezza** + **V2.3 onboarding Owner** (2026-06-16) + **Agency Provisioning API** (2026-06-18) + **Monitor OPS 4.2** (2026-06-18). **114 unit test verdi** (suite unit; integration non rieseguita in questa sessione).
 
 **V2.2 — Hardening (2026-06-15):** Performance — batch query per disponibilità/booking "qualsiasi operatore" (P1/P2), reminder con finestra di scan ristretta + indice (P3), **paginazione** `GET /admin/bookings` (`page`/`pageSize`, `PagedResponse<T>`) (P4). Sicurezza — rate-limit dedicato sulla **creazione** prenotazioni per API key (`RateLimiting:BookingPerMinute`, default 10) (S1); **retention/erasure GDPR** (`DataRetentionJob`: anonimizza PII prenotazioni oltre `Gdpr:RetentionDays`=365, purga outbox inviate oltre `Gdpr:OutboxRetentionDays`=30) (S2); **lockout login admin** (5 tentativi → 15 min, campi `User.FailedAccessCount`/`LockoutEnd`) (S3); **rotazione/revoca API key** via `GET/POST/DELETE /admin/api-keys` (S4); **guard JWT** in produzione (S5). `DbContext` pooling escluso (R-24). 2 migration nuove (`AddReminderScanIndex`, `AddUserLockout`).
 
@@ -24,7 +24,9 @@
 
 **Agency Provisioning API (2026-06-18):** Nuova identità di piattaforma `PlatformAdmin` (separata dai tenant, niente `TenantId`). Login `POST /api/v1/platform/auth/token`. Bootstrap break-glass via `POST /api/v1/platform/setup` (gated da env `PLATFORM_SETUP_TOKEN`). Endpoint completi per creare/elencare/disattivare tenant, gestire API key, resend attivazione Owner — nessuna CLI né accesso DB necessari. Logica provisioning unificata in `ITenantProvisioningService` (CLI + API). `TenantResolutionMiddleware` ora esclude `/api/v1/platform`. 1 migration nuova (`AddPlatformAdmin`). 4 nuovi test `PlatformFlowTests` (integration). Follow-up rimandati: invito multi-admin, reset platform via email, edit tenant, audit completo per-sorgente. Dettagli in `Claude_Instructions/DEVELOPMENT_PLAN.md` §Agency Provisioning.
 
-**Prossimo task:** Railway deploy — applicare le migration incl. `AddPlatformAdmin`; impostare `PLATFORM_SETUP_TOKEN` per il bootstrap admin piattaforma; impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato; impostare `PUBLIC_BASE_URL` (es. `https://<servizio>.railway.app`); eseguire **smoke test** (setup platform → login platform → crea tenant → verifica API key + attivazione Owner). Poi 8.7 (branding template). Dubbi/decisioni aperte in `Claude_Instructions/DUBBI_SESSIONE.md` (D-01…D-15).
+**Monitor OPS 4.2 (2026-06-18):** `OpsAlertMonitorJob` (BackgroundService), `OpsAlertScanner`, `DbLogErrorSource`, `DbHealthProbe`, `LogOnlyAlertChannel`, `TelegramAlertChannel` — tutti registrati via `AddOpsAlerting` in `DependencyInjection.cs`. Config `Ops:Alerting` in `appsettings.json`. 17 nuovi unit test (scanner + canali + sorgente + options). Build 0 warning, 114 unit test verdi.
+
+**Prossimo task:** filone 4.2 — alert su `OutboxEmail.Status == Failed` (eventuale canale email). Poi Railway deploy — applicare le migration incl. `AddPlatformAdmin`; impostare `PLATFORM_SETUP_TOKEN` per il bootstrap admin piattaforma; impostare `EMAIL_PROVIDER=Brevo` + `BREVO_API_KEY`/`BREVO_SENDER_EMAIL` con mittente verificato; impostare `PUBLIC_BASE_URL` (es. `https://<servizio>.railway.app`); eseguire **smoke test** (setup platform → login platform → crea tenant → verifica API key + attivazione Owner). Poi 8.7 (branding template). Dubbi/decisioni aperte in `Claude_Instructions/DUBBI_SESSIONE.md` (D-01…D-15).
 
 **Note runtime (da `Claude_Instructions/DOCKER_SESSION_TODO.md`):**
 - API porta **5022** (launchSettings.json profilo `http`)
@@ -262,6 +264,9 @@ In **produzione** non si usano né appsettings né user-secrets: solo **variabil
 | `DB_AUTO_MIGRATE` | Applica le migration EF all'avvio dell'API (opt-in; default `false`). In Development è già `true` via `appsettings.Development.json`. In produzione lasciare `false` se più istanze girano in parallelo (preferire uno step di migrazione nella pipeline) | `true` |
 | `PLATFORM_SETUP_TOKEN` | Token segreto che abilita l'endpoint di bootstrap `POST /api/v1/platform/setup`. Se non configurato, l'endpoint risponde **404** (break-glass: da usare solo al primo avvio per creare o reimpostare l'admin di piattaforma) | `<token-segreto-random>` |
 | `Jwt__PlatformAudience` | Audience del JWT emesso per `PlatformAdmin` (default: `WebAgency_BookingSystem.Platform`). Deve differire dall'audience admin tenant per evitare token cross-use | `WebAgency_BookingSystem.Platform` |
+| `OPS_ALERT_CHANNEL` | Canale alert OPS: `LogOnly` (default, riga `[OPS-ALERT]` su console/DB) oppure `Telegram` | `LogOnly` |
+| `OPS_ALERT_TELEGRAM_BOT_TOKEN` | **Segreto** bot Telegram per il canale alert OPS (dev: user-secrets; prod: env). Richiesto solo se `OPS_ALERT_CHANNEL=Telegram` | `<token-bot-telegram>` |
+| `OPS_ALERT_TELEGRAM_CHAT_ID` | Id chat/canale Telegram destinatario degli alert OPS. Richiesto solo se `OPS_ALERT_CHANNEL=Telegram` | `-1001234567890` |
 
 ## Logging
 
@@ -273,6 +278,8 @@ I log applicativi sono gestiti da **Serilog** con **due sink additivi**, in tutt
 - **`audit_log`** (tabella DB) è una cosa diversa: registro di **eventi di business** (es. `tenant_created`, `booking_created`), non i log applicativi.
 
 Config (sezione `DatabaseLogging` in `appsettings.json`): `Enabled` (default `true`), `MinimumLevel` (`Information`), `RetentionDays` (`90`), `Table` (`logs`, validato whitelist). Disattivato nei test di integrazione. In produzione i log EF restano a `Warning` (vedi `Serilog:MinimumLevel:Override`), evitando flood di SQL nella tabella.
+
+**Monitor OPS (4.2):** `OpsAlertMonitorJob` scansiona ogni `PollSeconds` (default 60) la tabella `logs` per errori `>= MinLevel` e rileva il DB-down su transizione, recapitando un `OpsAlert` via `IOpsAlertChannel` (Telegram se configurato, altrimenti LogOnly = riga `[OPS-ALERT]` su console/DB). Assunzione: singola istanza (watermark/stato in-memory). Uptime monitor esterno → `GET /api/v1/health`. Config: sezione `Ops:Alerting` in `appsettings.json` (`Enabled`, `Channel`, `PollSeconds`, `MinLevel`); credenziali Telegram via `OPS_ALERT_TELEGRAM_BOT_TOKEN` + `OPS_ALERT_TELEGRAM_CHAT_ID`.
 
 ## Endpoint API — Sommario
 

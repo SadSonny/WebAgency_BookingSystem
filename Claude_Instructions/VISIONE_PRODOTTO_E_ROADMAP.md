@@ -1,6 +1,6 @@
 # Visione di Prodotto & Roadmap
 
-> Documento di contesto strategico. Chiarisce **per chi** è il prodotto, **cosa è dentro/fuori scope** (con il perché) e **cosa rimane da fare**. Serve a evitare che sessioni future ripropongano come "gap" cose escluse di proposito. Ultimo aggiornamento: **2026-06-18** (Agency Provisioning API completata).
+> Documento di contesto strategico. Chiarisce **per chi** è il prodotto, **cosa è dentro/fuori scope** (con il perché) e **cosa rimane da fare**. Serve a evitare che sessioni future ripropongano come "gap" cose escluse di proposito. Ultimo aggiornamento: **2026-06-18** (Monitor OPS 4.2: health check + alerting/Telegram completati).
 
 ## 1. Posizionamento — chi è il cliente
 
@@ -47,10 +47,16 @@ Scelta: **console interna per l'agenzia** (non per il barber → coerente con l'
 **Follow-up rimandati (spec §9):** invito multi-admin per tenant, reset password platform via email, attivazione primo admin platform via email, `PATCH /platform/tenants/{id}` (edit tenant), audit completo per-sorgente (attore `platform-admin:{id}` nelle righe `audit_log`).
 
 ### 4.2 Osservabilità OPS — alerting fai-da-te
+
+> **PARZIALMENTE COMPLETATO (2026-06-18).** Health check DB reale + alerting errori applicativi + canale Telegram implementati. Rimane: alert su outbox fallita e canale email.
+
 Scelta: **alerting leggero su email/Telegram** (no APM esterno per ora). Comprende:
-- **Health check reale** (verifica connettività DB) per la salute del deploy Railway.
-- **Alert su errori applicativi e outbox email fallita** verso email/Telegram.
-- **Uptime monitor esterno** gratuito (es. UptimeRobot), zero codice.
+- [x] **Health check reale** (`DbHealthProbe`, `IDbHealthProbe`) — verifica connettività DB per la salute del deploy Railway; già esposto su `GET /api/v1/health`.
+- [x] **Alert su errori applicativi** — `OpsAlertScanner` + `OpsAlertMonitorJob` (BackgroundService): scansiona la tabella `logs` ogni `PollSeconds` (default 60s), aggrega errori `>= MinLevel`, rileva transizioni DB-down/recovered; recapita via `IOpsAlertChannel`.
+- [x] **Canale Telegram** (`TelegramAlertChannel`) + **canale LogOnly** (`LogOnlyAlertChannel`) — selezione via `Ops:Alerting:Channel` / `OPS_ALERT_CHANNEL`; fallback automatico a LogOnly se le credenziali Telegram mancano.
+- [ ] **Alert su `OutboxEmail.Status == Failed`** — **next**: aggiungere probe sull'outbox email e integrarlo nello scanner (o come alert separato).
+- [ ] **Canale email** — eventuale: notifiche anche via email per ambienti senza Telegram.
+- **Uptime monitor esterno** gratuito (es. UptimeRobot), zero codice — da configurare post-deploy su `GET /api/v1/health`.
 - Si appoggia al logging su DB già esistente (`logs` + retention 90gg).
 
 ### 4.3 Compliance GDPR — DSAR + consenso arricchito (codice) + doc

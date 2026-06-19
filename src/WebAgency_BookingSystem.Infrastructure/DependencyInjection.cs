@@ -9,8 +9,10 @@ using Microsoft.Extensions.Logging;
 using WebAgency_BookingSystem.Core.Abstractions;
 using WebAgency_BookingSystem.Core.Abstractions.Repositories;
 using WebAgency_BookingSystem.Core.Abstractions.Services;
+using WebAgency_BookingSystem.Core.Observability;
 using WebAgency_BookingSystem.Infrastructure.Auth;
 using WebAgency_BookingSystem.Infrastructure.Email;
+using WebAgency_BookingSystem.Infrastructure.Observability;
 using WebAgency_BookingSystem.Infrastructure.Persistence;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Caching;
 using WebAgency_BookingSystem.Infrastructure.Persistence.Interceptors;
@@ -94,6 +96,9 @@ public static class DependencyInjection
         // del booking; il dispatcher in background invia col trasporto per-ambiente (AD-10) con retry/backoff.
         AddEmail(services, configuration);
 
+        // Monitor OPS (4.2): scansiona la tabella logs e il DB, recapita alert via canale configurato.
+        AddOpsAlerting(services, configuration);
+
         // Logica cleanup (scoped) + job scheduling (singleton BackgroundService).
         services.AddScoped<IExpiredBookingCleaner, ExpiredBookingCleaner>();
         services.AddHostedService<ExpiredBookingCleanupJob>();
@@ -151,4 +156,58 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<EmailOutboxDispatcher>>(),
             pollInterval));
     }
+
+    // WHY (4.2): monitor OPS. Lo scanner è singleton (mantiene watermark/flag tra i tick); sorgente log e probe DB
+    // sono singleton che aprono uno scope per chiamata. Il canale è scelto una sola volta da OpsAlertOptions
+    // (Telegram se configurato, altrimenti LogOnly). Se Enabled=false non si registra nulla.
+    private static void AddOpsAlerting(IServiceCollection services, IConfiguration configuration)
+    {
+        OpsAlertOptions options = OpsAlertOptions.FromConfiguration(configuration);
+        if (!options.Enabled)
+        {
+            return;
+        }
+
+        // Nome tabella log validato: vive nel progetto Api (DatabaseLogSettings). Lo leggiamo qui dalla config con
+        // lo stesso default/whitelist per non creare un riferimento Infrastructure → Api.
+        string logTable = configuration["DatabaseLogging:Table"] is { Length: > 0 } t && IsSafeIdentifier(t)
+            ? t
+            : "logs";
+
+        services.AddSingleton<ILogErrorSource>(sp => new DbLogErrorSource(
+            sp.GetRequiredService<IServiceScopeFactory>(), logTable));
+        services.AddSingleton<IDbHealthProbe, DbHealthProbe>();
+
+        if (options.Channel == OpsAlertChannelKind.Telegram)
+        {
+            services.AddHttpClient(TelegramAlertChannel.HttpClientName, client =>
+                client.BaseAddress = new Uri($"https://api.telegram.org/bot{options.TelegramBotToken}/"));
+            services.AddSingleton<IOpsAlertChannel>(sp => new TelegramAlertChannel(
+                sp.GetRequiredService<IHttpClientFactory>(),
+                options.TelegramChatId,
+                sp.GetRequiredService<ILogger<TelegramAlertChannel>>()));
+        }
+        else
+        {
+            services.AddSingleton<IOpsAlertChannel, LogOnlyAlertChannel>();
+        }
+
+        services.AddSingleton(sp => new OpsAlertScanner(
+            sp.GetRequiredService<ILogErrorSource>(),
+            sp.GetRequiredService<IDbHealthProbe>(),
+            sp.GetRequiredService<IOpsAlertChannel>(),
+            options.Levels,
+            DateTimeOffset.UtcNow));
+
+        TimeSpan interval = TimeSpan.FromSeconds(options.PollSeconds);
+        services.AddHostedService(sp => new OpsAlertMonitorJob(
+            sp.GetRequiredService<OpsAlertScanner>(),
+            sp.GetRequiredService<ILogger<OpsAlertMonitorJob>>(),
+            interval,
+            options.FellBackToLogOnly));
+    }
+
+    // WHY: difesa in profondità sul nome tabella (già whitelist altrove). Identificatore Postgres semplice.
+    private static bool IsSafeIdentifier(string value) =>
+        value.All(c => char.IsLetterOrDigit(c) || c == '_');
 }
