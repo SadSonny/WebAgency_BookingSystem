@@ -46,5 +46,19 @@ public class LogOnlyAlertChannelTests
         await sut.SendAsync(new OpsAlert(OpsAlertKind.DbRecovered, "DB ok", "ripristinato", DateTimeOffset.UtcNow));
 
         Assert.Equal(LogLevel.Warning, logger.Entries[0].Level);
+        Assert.Contains("[OPS-ALERT]", logger.Entries[0].Message);
+    }
+
+    [Fact]
+    public async Task db_down_logga_a_livello_error()
+    {
+        var logger = new CapturingLogger<LogOnlyAlertChannel>();
+        var sut = new LogOnlyAlertChannel(logger);
+
+        await sut.SendAsync(new OpsAlert(OpsAlertKind.DbDown, "DB giù", "irraggiungibile", DateTimeOffset.UtcNow));
+
+        Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Error, logger.Entries[0].Level);
+        Assert.Contains("[OPS-ALERT]", logger.Entries[0].Message);
     }
 }
