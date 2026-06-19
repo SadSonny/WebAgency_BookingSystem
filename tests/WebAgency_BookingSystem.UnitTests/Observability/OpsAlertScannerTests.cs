@@ -116,4 +116,37 @@ public class OpsAlertScannerTests
 
         await channel.Received(1).SendAsync(Arg.Is<OpsAlert>(a => a.Kind == OpsAlertKind.DbRecovered), Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task esclude_i_propri_alert_dal_digest()
+    {
+        var channel = Substitute.For<IOpsAlertChannel>();
+        ILogErrorSource src = SourceReturning(
+            new LogError(T0.AddSeconds(1), "Error", "errore reale"),
+            new LogError(T0.AddSeconds(2), "Error", "[OPS-ALERT] ErrorDigest: 1 errori applicativi — ..."));
+        var sut = new OpsAlertScanner(src, ProbeReturning(true), channel, Levels, T0);
+
+        await sut.RunOnceAsync();
+
+        // Solo l'errore reale entra nel conteggio (l'alert [OPS-ALERT] è escluso).
+        await channel.Received(1).SendAsync(
+            Arg.Is<OpsAlert>(a => a.Kind == OpsAlertKind.ErrorDigest && a.Title.StartsWith("1 ")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task solo_self_log_nessun_alert_ma_watermark_avanza()
+    {
+        var channel = Substitute.For<IOpsAlertChannel>();
+        var src = Substitute.For<ILogErrorSource>();
+        src.GetSinceAsync(Arg.Any<DateTimeOffset>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns([new LogError(T0.AddSeconds(3), "Error", "[OPS-ALERT] qualcosa")]);
+        var sut = new OpsAlertScanner(src, ProbeReturning(true), channel, Levels, T0);
+
+        await sut.RunOnceAsync();
+
+        // Nessun alert (solo self-log), ma il watermark deve essere avanzato oltre la riga letta.
+        await channel.DidNotReceive().SendAsync(Arg.Any<OpsAlert>(), Arg.Any<CancellationToken>());
+        await src.Received().GetSinceAsync(T0, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
 }

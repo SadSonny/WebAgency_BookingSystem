@@ -17,7 +17,7 @@ internal sealed class LogOnlyAlertChannel : IOpsAlertChannel
     {
         // WHY: DbRecovered è una buona notizia (Warning); ErrorDigest/DbDown sono problemi attivi (Error).
         LogLevel level = alert.Kind == OpsAlertKind.DbRecovered ? LogLevel.Warning : LogLevel.Error;
-        _logger.Log(level, "[OPS-ALERT] {Kind}: {Title} — {Detail}", alert.Kind, alert.Title, alert.Detail);
+        _logger.Log(level, OpsLog.SelfMarker + " {Kind}: {Title} — {Detail}", alert.Kind, alert.Title, alert.Detail);
         return Task.CompletedTask;
     }
 }

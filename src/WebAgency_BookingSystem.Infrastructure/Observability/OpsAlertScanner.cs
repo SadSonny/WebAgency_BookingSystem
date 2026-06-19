@@ -62,16 +62,28 @@ internal sealed class OpsAlertScanner
                 DateTimeOffset.UtcNow), ct);
         }
 
-        IReadOnlyList<LogError> errors = await _logErrors.GetSinceAsync(_watermark, _levels, ct);
-        if (errors.Count == 0)
+        IReadOnlyList<LogError> raw = await _logErrors.GetSinceAsync(_watermark, _levels, ct);
+        if (raw.Count == 0)
         {
             return;
         }
 
         DateTimeOffset previous = _watermark;
-        _watermark = errors.Max(e => e.Timestamp);
+        // WHY: avanza oltre TUTTE le righe lette (inclusi i nostri stessi alert), così non le rileggiamo al tick dopo.
+        _watermark = raw.Max(e => e.Timestamp);
 
-        string sample = string.Join("\n", errors
+        // WHY (anti-feedback-loop): i log interni del sottosistema OPS (canale LogOnly, fallimenti Telegram, catch del
+        // job) sono scritti come Error con marcatore OpsLog.SelfMarker. Vanno esclusi dal digest, altrimenti il monitor
+        // conterebbe i propri alert come errori applicativi e si auto-alimenterebbe all'infinito.
+        List<LogError> appErrors = raw
+            .Where(e => !e.Message.Contains(OpsLog.SelfMarker, StringComparison.Ordinal))
+            .ToList();
+        if (appErrors.Count == 0)
+        {
+            return;
+        }
+
+        string sample = string.Join("\n", appErrors
             .Select(e => e.Message)
             .Distinct()
             .Take(SampleSize)
@@ -79,7 +91,7 @@ internal sealed class OpsAlertScanner
 
         await _channel.SendAsync(new OpsAlert(
             OpsAlertKind.ErrorDigest,
-            $"{errors.Count} errori applicativi",
+            $"{appErrors.Count} errori applicativi",
             $"Dal {previous:o}:\n{sample}",
             DateTimeOffset.UtcNow), ct);
     }

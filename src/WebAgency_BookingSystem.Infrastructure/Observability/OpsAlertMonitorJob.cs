@@ -44,7 +44,7 @@ internal sealed class OpsAlertMonitorJob : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Errore nel ciclo del monitor OPS");
+                _logger.LogError(ex, OpsLog.SelfMarker + " Errore nel ciclo del monitor OPS");
             }
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));

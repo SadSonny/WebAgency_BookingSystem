@@ -35,12 +35,12 @@ internal sealed class TelegramAlertChannel : IOpsAlertChannel
             using HttpResponseMessage resp = await http.PostAsJsonAsync("sendMessage", payload, ct);
             if (!resp.IsSuccessStatusCode)
             {
-                _logger.LogError("Invio alert Telegram fallito: HTTP {Status}", (int)resp.StatusCode);
+                _logger.LogError(OpsLog.SelfMarker + " Invio alert Telegram fallito: HTTP {Status}", (int)resp.StatusCode);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "Eccezione nell'invio dell'alert Telegram");
+            _logger.LogError(ex, OpsLog.SelfMarker + " Eccezione nell'invio dell'alert Telegram");
         }
     }
 }
