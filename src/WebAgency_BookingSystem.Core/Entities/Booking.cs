@@ -51,6 +51,10 @@ public class Booking : IAuditableEntity
     /// <summary>Istante del consenso GDPR (UTC).</summary>
     public DateTimeOffset GdprConsentAt { get; set; }
 
+    /// <summary>Versione dell'informativa privacy accettata (opaca, decisa dall'agenzia; prova del consenso).
+    /// Null per le prenotazioni precedenti a questa feature o per i client che non la inviano.</summary>
+    public string? GdprConsentVersion { get; set; }
+
     /// <summary>Stato corrente della prenotazione.</summary>
     public BookingStatus Status { get; set; } = BookingStatus.Confirmed;
 

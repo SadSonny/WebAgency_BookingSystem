@@ -186,6 +186,7 @@ internal sealed class BookingService : IBookingService
                 CustomerNotes = request.Customer.Notes,
                 GdprConsent = request.GdprConsent,
                 GdprConsentAt = nowUtc,
+                GdprConsentVersion = request.GdprConsentVersion,
                 Status = BookingStatus.Confirmed,
                 CancellationToken = Guid.NewGuid(),
                 PriceAtBooking = totalPrice,
