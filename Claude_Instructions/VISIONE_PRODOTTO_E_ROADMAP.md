@@ -48,15 +48,16 @@ Scelta: **console interna per l'agenzia** (non per il barber → coerente con l'
 
 ### 4.2 Osservabilità OPS — alerting fai-da-te
 
-> **PARZIALMENTE COMPLETATO (2026-06-18).** Health check DB reale + alerting errori applicativi + canale Telegram implementati. Rimane: alert su outbox fallita e canale email.
+> **COMPLETATO (2026-06-19).** Health check DB reale + alerting errori applicativi (incl. outbox fallita, già coperta dal digest) + canale Telegram/LogOnly implementati e testati (162 test verdi). Resta solo la **configurazione** Telegram al deploy (env, zero codice) e l'uptime monitor esterno. Canale email rimandato (non necessario).
 
 Scelta: **alerting leggero su email/Telegram** (no APM esterno per ora). Comprende:
 - [x] **Health check reale** (`DbHealthProbe`, `IDbHealthProbe`) — verifica connettività DB per la salute del deploy Railway; già esposto su `GET /api/v1/health`.
 - [x] **Alert su errori applicativi** — `OpsAlertScanner` + `OpsAlertMonitorJob` (BackgroundService): scansiona la tabella `logs` ogni `PollSeconds` (default 60s), aggrega errori `>= MinLevel`, rileva transizioni DB-down/recovered; recapita via `IOpsAlertChannel`.
 - [x] **Canale Telegram** (`TelegramAlertChannel`) + **canale LogOnly** (`LogOnlyAlertChannel`) — selezione via `Ops:Alerting:Channel` / `OPS_ALERT_CHANNEL`; fallback automatico a LogOnly se le credenziali Telegram mancano.
-- [ ] **Alert su `OutboxEmail.Status == Failed`** — **next**: aggiungere probe sull'outbox email e integrarlo nello scanner (o come alert separato).
-- [ ] **Canale email** — eventuale: notifiche anche via email per ambienti senza Telegram.
+- [x] **Alert su `OutboxEmail.Status == Failed`** — **GIÀ COPERTO (2026-06-19)**: `EmailOutboxProcessor` logga un `LogError` quando un'email fallisce definitivamente (oltre `MaxAttempts`); quel log Error finisce in `logs` e viene già incluso nel digest errori dell'OPS (non ha il marcatore `[OPS-ALERT]`, quindi non è escluso). Una sorgente dedicata sarebbe ridondante (YAGNI). Verificato a 2026-06-19 (162 test verdi).
+- [ ] **Canale email** — eventuale: notifiche anche via email per ambienti senza Telegram. Rimandato (Telegram è sufficiente).
 - **Uptime monitor esterno** gratuito (es. UptimeRobot), zero codice — da configurare post-deploy su `GET /api/v1/health`.
+- **Config Telegram al deploy** (zero codice, già implementato): impostare `OPS_ALERT_CHANNEL=Telegram`, `OPS_ALERT_TELEGRAM_BOT_TOKEN`, `OPS_ALERT_TELEGRAM_CHAT_ID` per far recapitare davvero gli alert; senza credenziali resta `LogOnly` (alert solo su console/DB).
 - Si appoggia al logging su DB già esistente (`logs` + retention 90gg).
 
 ### 4.3 Compliance GDPR — DSAR + consenso arricchito (codice) + doc
