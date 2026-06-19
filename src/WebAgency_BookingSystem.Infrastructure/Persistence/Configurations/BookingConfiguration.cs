@@ -20,6 +20,7 @@ internal sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.Property(b => b.CancellationReason).HasMaxLength(255);
         builder.Property(b => b.PriceAtBooking).HasPrecision(10, 2);
         builder.Property(b => b.GdprConsent).HasDefaultValue(true);
+        builder.Property(b => b.GdprConsentVersion).HasMaxLength(100);
         builder.Property(b => b.Status).HasConversion<string>().HasMaxLength(50);
 
         builder.HasIndex(b => new { b.TenantId, b.BookingDate });

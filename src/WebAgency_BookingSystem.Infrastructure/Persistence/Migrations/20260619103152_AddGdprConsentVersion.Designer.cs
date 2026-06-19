@@ -12,7 +12,7 @@ using WebAgency_BookingSystem.Infrastructure.Persistence;
 namespace WebAgency_BookingSystem.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(BookingSystemDbContext))]
-    [Migration("20260619095329_AddGdprConsentVersion")]
+    [Migration("20260619103152_AddGdprConsentVersion")]
     partial class AddGdprConsentVersion
     {
         /// <inheritdoc />
@@ -144,7 +144,8 @@ namespace WebAgency_BookingSystem.Infrastructure.Persistence.Migrations
                         .HasColumnName("gdpr_consent_at");
 
                     b.Property<string>("GdprConsentVersion")
-                        .HasColumnType("text")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("gdpr_consent_version");
 
                     b.Property<DateTimeOffset?>("NoShowMarkedAt")

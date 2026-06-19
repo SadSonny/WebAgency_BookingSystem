@@ -13,7 +13,8 @@ namespace WebAgency_BookingSystem.Infrastructure.Persistence.Migrations
             migrationBuilder.AddColumn<string>(
                 name: "gdpr_consent_version",
                 table: "bookings",
-                type: "text",
+                type: "character varying(100)",
+                maxLength: 100,
                 nullable: true);
         }
 

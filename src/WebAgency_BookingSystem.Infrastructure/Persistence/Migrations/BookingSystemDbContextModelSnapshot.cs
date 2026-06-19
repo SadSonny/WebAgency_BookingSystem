@@ -141,7 +141,8 @@ namespace WebAgency_BookingSystem.Infrastructure.Persistence.Migrations
                         .HasColumnName("gdpr_consent_at");
 
                     b.Property<string>("GdprConsentVersion")
-                        .HasColumnType("text")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("gdpr_consent_version");
 
                     b.Property<DateTimeOffset?>("NoShowMarkedAt")
