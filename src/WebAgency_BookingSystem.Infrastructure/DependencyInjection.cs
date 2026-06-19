@@ -82,6 +82,7 @@ public static class DependencyInjection
         services.AddScoped<IAdminStaffManager, AdminStaffManager>();
         services.AddScoped<IAdminBookingService, AdminBookingService>();
         services.AddScoped<IAdminApiKeyManager, AdminApiKeyManager>();
+        services.AddScoped<IGdprDsarService, GdprDsarService>();
 
         services.AddScoped<IAvailabilityService, AvailabilityService>();
         services.AddScoped<IBookingService, BookingService>();

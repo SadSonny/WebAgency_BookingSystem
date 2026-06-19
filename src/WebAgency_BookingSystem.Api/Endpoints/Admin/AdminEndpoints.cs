@@ -8,7 +8,7 @@ namespace WebAgency_BookingSystem.Api.Endpoints.Admin;
 /// </summary>
 internal static class AdminEndpoints
 {
-    /// <summary>Mappa tutti gli endpoint admin: auth, servizi, staff, orari, chiusure, prenotazioni.</summary>
+    /// <summary>Mappa tutti gli endpoint admin: auth, servizi, staff, orari, chiusure, prenotazioni, DSAR GDPR.</summary>
     public static IEndpointRouteBuilder MapAdminEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapAdminAuthEndpoints();
@@ -18,6 +18,7 @@ internal static class AdminEndpoints
         app.MapAdminBookingEndpoints();
         app.MapAdminApiKeyEndpoints();
         app.MapAdminAccountEndpoints();
+        app.MapAdminGdprEndpoints();
         return app;
     }
 }
