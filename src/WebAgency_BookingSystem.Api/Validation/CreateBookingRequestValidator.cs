@@ -28,6 +28,12 @@ public sealed class CreateBookingRequestValidator : AbstractValidator<CreateBook
         RuleFor(x => x.GdprConsent)
             .Equal(true).WithMessage("Il consenso al trattamento dei dati è obbligatorio.");
 
+        // WHY: GdprConsentVersion arriva da un endpoint PUBBLICO ed è persistita in una colonna varchar(100):
+        // senza questo limite un input troppo lungo provocherebbe un errore DB (500) invece di un 422 pulito.
+        RuleFor(x => x.GdprConsentVersion)
+            .MaximumLength(100).WithMessage("La versione del consenso non può superare 100 caratteri.")
+            .When(x => x.GdprConsentVersion is not null);
+
         RuleFor(x => x.Customer).NotNull().WithMessage("I dati del cliente sono obbligatori.");
 
         When(x => x.Customer is not null, () =>
