@@ -35,10 +35,13 @@ public static class DependencyInjection
     /// </summary>
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        string connectionString = configuration["DATABASE_URL"]
+        // WHY: DATABASE_URL può arrivare in formato URI (Railway/Render/Fly/Heroku) o keyword; Normalize converte
+        // l'URI in formato Npgsql (che non accetta gli URI) e lascia invariato il keyword → nessun passo manuale.
+        string connectionString = DatabaseConnectionString.Normalize(
+            configuration["DATABASE_URL"]
             ?? configuration.GetConnectionString("Database")
             ?? throw new InvalidOperationException(
-                "Connection string mancante: impostare DATABASE_URL o ConnectionStrings:Database.");
+                "Connection string mancante: impostare DATABASE_URL o ConnectionStrings:Database."));
 
         // WHY (R-12): EnableRetryOnFailure rende il DbContext resiliente agli errori transitori del DB
         // (riavvii, failover). Le transazioni manuali (BookingService) girano dentro un'execution strategy
