@@ -357,5 +357,6 @@ Tutta la documentazione vive in `Claude_Instructions/` (unico `.md` nella root Ã
 - Piano e avanzamento: `Claude_Instructions/DEVELOPMENT_PLAN.md`
 - Guida integrazione (API, onboarding sito, CLI): `Claude_Instructions/GUIDA_INTEGRAZIONE_API.md`
 - **Compliance GDPR** (ruoli, sub-responsabili, data-flow, retention, DSAR): `Claude_Instructions/GDPR_COMPLIANCE.md`
+- **Deploy Railway** (checklist operativa: env, migration, smoke test): `Claude_Instructions/DEPLOY_RAILWAY.md`
 - Test API con Thunder Client: `Claude_Instructions/TEST_API_THUNDER_CLIENT.md` (file importabili in `thunder-tests/`)
 - Note/sessioni: `Claude_Instructions/DUBBI_SESSIONE.md`, `Claude_Instructions/DOCKER_SESSION_TODO.md`, `Claude_Instructions/CODE_REVIEW_FINDINGS.md`
