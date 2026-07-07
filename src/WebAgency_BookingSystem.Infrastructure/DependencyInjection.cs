@@ -35,13 +35,26 @@ public static class DependencyInjection
     /// </summary>
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        // WHY: un riferimento di piattaforma mal risolto (es. Railway) può iniettare DATABASE_URL come stringa
+        // VUOTA (non null): il vecchio `?? ` non la intercettava e Npgsql falliva più tardi con un errore criptico
+        // ("ConnectionString has not been initialized"). Trattiamo vuoto/whitespace come "mancante" → fallback alla
+        // sezione ConnectionStrings, altrimenti errore chiaro all'avvio.
+        string? candidate = configuration["DATABASE_URL"];
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            candidate = configuration.GetConnectionString("Database");
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            throw new InvalidOperationException(
+                "Connection string mancante o vuota: impostare DATABASE_URL (o ConnectionStrings:Database). "
+                + "Su Railway verifica che il riferimento punti a una variabile esistente, es. ${{Postgres.DATABASE_URL}}.");
+        }
+
         // WHY: DATABASE_URL può arrivare in formato URI (Railway/Render/Fly/Heroku) o keyword; Normalize converte
         // l'URI in formato Npgsql (che non accetta gli URI) e lascia invariato il keyword → nessun passo manuale.
-        string connectionString = DatabaseConnectionString.Normalize(
-            configuration["DATABASE_URL"]
-            ?? configuration.GetConnectionString("Database")
-            ?? throw new InvalidOperationException(
-                "Connection string mancante: impostare DATABASE_URL o ConnectionStrings:Database."));
+        string connectionString = DatabaseConnectionString.Normalize(candidate);
 
         // WHY (R-12): EnableRetryOnFailure rende il DbContext resiliente agli errori transitori del DB
         // (riavvii, failover). Le transazioni manuali (BookingService) girano dentro un'execution strategy
